@@ -1,0 +1,16 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "typst-to-web"
+version = "0.1.0"
+description = "Convert Typst documents to beautiful, searchable websites"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.scripts]
+typst-web = "typst_web.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["typst_web"]
