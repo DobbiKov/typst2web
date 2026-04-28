@@ -7,40 +7,24 @@ import sys
 import time
 from pathlib import Path
 
-from .builder import build_html
-from .compiler import compile_to_svgs, get_typst_version, query_heading_pages
+from .compiler import compile_to_html, get_typst_version
+from .figure_renderer import compile_figures_to_svg
+from .math_renderer import compile_math_to_svgs
 from .parser import parse
-from .search import build_search_index
+from .postprocessor import build_web_page
+from .preprocessor import preprocess
 
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
         prog="typst-web",
-        description="Convert a Typst document into a self-contained HTML website.",
+        description="Convert a Typst document into a MyST-style website.",
     )
-    ap.add_argument("input", metavar="INPUT.typ", nargs="?", help="Typst source file")
-    ap.add_argument(
-        "-o", "--output",
-        metavar="OUTPUT.html",
-        help="Output HTML file (default: INPUT.html)",
-    )
-    ap.add_argument(
-        "--root",
-        metavar="DIR",
-        help="Typst project root directory (for absolute imports)",
-    )
-    ap.add_argument(
-        "--font-path",
-        metavar="DIR",
-        action="append",
-        dest="font_paths",
-        help="Additional font directories (repeatable)",
-    )
-    ap.add_argument(
-        "--version",
-        action="store_true",
-        help="Show version information and exit",
-    )
+    ap.add_argument("input", metavar="INPUT.typ", nargs="?")
+    ap.add_argument("-o", "--output", metavar="OUTPUT.html")
+    ap.add_argument("--root", metavar="DIR")
+    ap.add_argument("--font-path", metavar="DIR", action="append", dest="font_paths")
+    ap.add_argument("--version", action="store_true")
     args = ap.parse_args(argv)
 
     if args.version:
@@ -55,12 +39,10 @@ def main(argv: list[str] | None = None) -> int:
     if not args.input:
         ap.error("INPUT.typ is required")
 
-    typ_path = Path(args.input)
+    typ_path   = Path(args.input)
     if not typ_path.exists():
         print(f"error: file not found: {typ_path}", file=sys.stderr)
         return 1
-    if typ_path.suffix.lower() != ".typ":
-        print(f"warning: expected a .typ file, got: {typ_path}", file=sys.stderr)
 
     out_path   = Path(args.output) if args.output else typ_path.with_suffix(".html")
     root       = Path(args.root) if args.root else None
@@ -68,31 +50,57 @@ def main(argv: list[str] | None = None) -> int:
 
     t0 = time.perf_counter()
 
-    print(f"[1/4] Compiling {typ_path.name} → SVG pages…", flush=True)
+    # ── 1. Preprocess: extract math expressions, leave placeholders ───────────
+    print(f"[1/4] Preprocessing {typ_path.name}…", flush=True)
+    source = typ_path.read_text(encoding="utf-8")
+    pp = preprocess(source)
+    n_inline  = sum(1 for e in pp.expressions if not e.display)
+    n_display = sum(1 for e in pp.expressions if e.display)
+    print(f"      {n_inline} inline + {n_display} display math expressions.", flush=True)
+
+    # Write preprocessed source (with placeholder comments) next to original
+    # so that relative #import paths still resolve
+    pp_path = typ_path.parent / f"_typst_web_pp_{typ_path.stem}.typ"
     try:
-        svgs = compile_to_svgs(typ_path, root=root, font_paths=font_paths)
-    except RuntimeError as e:
-        print(f"error: {e}", file=sys.stderr)
-        return 1
-    print(f"      {len(svgs)} page(s) compiled.", flush=True)
+        pp_path.write_text(pp.source, encoding="utf-8")
 
-    print("[2/4] Querying heading page numbers…", flush=True)
-    heading_pages = query_heading_pages(typ_path, root=root, font_paths=font_paths)
-    if heading_pages:
-        print(f"      {len(heading_pages)} heading(s) located.", flush=True)
-    else:
-        print("      (could not locate headings; search will use heuristics)", flush=True)
+        # ── 2. Compile HTML ───────────────────────────────────────────────────
+        print("[2/4] Compiling to HTML…", flush=True)
+        try:
+            typst_html = compile_to_html(pp_path, root=root, font_paths=font_paths)
+        except RuntimeError as e:
+            print(f"error: {e}", file=sys.stderr)
+            return 1
+    finally:
+        pp_path.unlink(missing_ok=True)
 
-    print("[3/4] Parsing document structure & building search index…", flush=True)
+    # ── 3. Render math + figures to SVG ──────────────────────────────────────
+    print("[3/4] Rendering math and figures to SVG…", flush=True)
+    math_svgs: list[str] = []
+    if pp.expressions:
+        exprs = [(e.body, e.display) for e in pp.expressions]
+        math_svgs = compile_math_to_svgs(exprs, typ_dir=typ_path.parent, font_paths=font_paths)
+        print(f"      {sum(1 for s in math_svgs if s)} math SVGs rendered.", flush=True)
+
+    figure_svgs = compile_figures_to_svg(typ_path, root=root, font_paths=font_paths)
+    if figure_svgs:
+        print(f"      {len(figure_svgs)} figure(s) compiled.", flush=True)
+
+    # ── 4. Assemble web page ──────────────────────────────────────────────────
+    print("[4/4] Assembling web page…", flush=True)
     structure = parse(typ_path)
-    search_index = build_search_index(typ_path, heading_pages, len(svgs))
-    if structure.meta.title:
-        print(f"      title: {structure.meta.title}")
-    if structure.headings:
-        print(f"      {len(structure.headings)} heading(s) found.")
+    meta = structure.meta
 
-    print("[4/4] Building HTML…", flush=True)
-    html = build_html(svgs, structure, search_index, source_name=typ_path.stem)
+    html = build_web_page(
+        typst_html,
+        figure_svgs,
+        math_svgs,
+        pp.expressions,
+        title=meta.title or typ_path.stem,
+        authors=meta.authors,
+        date=meta.date,
+        source_name=typ_path.stem,
+    )
 
     out_path.write_text(html, encoding="utf-8")
     elapsed = time.perf_counter() - t0
