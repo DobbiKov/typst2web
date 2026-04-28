@@ -115,3 +115,98 @@ def compile_figures_to_svg(
                 src_file.unlink(missing_ok=True)
 
     return result
+
+
+def _collect_preamble_for(typ_file: Path) -> str:
+    """
+    Collect #import and #let blocks from a .typ file to use as preamble.
+    Handles multi-line #let blocks by tracking brace depth.
+    """
+    try:
+        source = typ_file.read_text(encoding="utf-8")
+    except OSError:
+        return ""
+
+    preamble_parts: list[str] = []
+    lines = source.splitlines(keepends=True)
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        stripped = line.lstrip()
+        if re.match(r"#import\b", stripped):
+            preamble_parts.append(line)
+            i += 1
+        elif re.match(r"#let\b", stripped):
+            # Collect the full let block (may span multiple lines via braces)
+            block = [line]
+            # Count open/close braces to know when the block ends
+            depth = line.count("{") - line.count("}")
+            i += 1
+            while i < len(lines) and depth > 0:
+                block.append(lines[i])
+                depth += lines[i].count("{") - lines[i].count("}")
+                i += 1
+            preamble_parts.append("".join(block))
+        else:
+            i += 1
+
+    return "".join(preamble_parts)
+
+
+def compile_canvases_to_svgs(
+    canvases,           # list[CanvasExpr]
+    *,
+    typ_dir: Path,
+    root: Path | None = None,
+    font_paths: list[Path] | None = None,
+) -> list[str]:
+    """
+    Compile each CanvasExpr to SVG.
+    Returns a list of SVG strings (empty string if compilation failed).
+    """
+    from .compiler import find_typst
+    typst = find_typst()
+    result: list[str] = [""] * len(canvases)
+
+    for cv in canvases:
+        # Collect imports/lets from the file that contains this canvas
+        src_file_path = getattr(cv, "source_path", None)
+        preamble = ""
+        if src_file_path and Path(src_file_path).exists():
+            preamble = _collect_preamble_for(Path(src_file_path))
+            compile_dir = Path(src_file_path).parent
+        else:
+            compile_dir = typ_dir
+
+        canvas_source = (
+            preamble
+            + "#set page(width: auto, height: auto, margin: 8pt)\n"
+            + "#align(center)[\n"
+            + cv.body
+            + "\n]\n"
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            src_file = compile_dir / f"_typst_web_canvas_{cv.index}.typ"
+            out_file = Path(tmp) / "canvas.svg"
+            try:
+                src_file.write_text(canvas_source, encoding="utf-8")
+                cmd = [typst, "compile", str(src_file), str(out_file), "--format", "svg"]
+                if root:
+                    cmd += ["--root", str(root)]
+                if font_paths:
+                    for fp in font_paths:
+                        cmd += ["--font-path", str(fp)]
+                r = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+                if r.returncode == 0 and out_file.exists():
+                    svg = out_file.read_text(encoding="utf-8")
+                    svg = re.sub(r"<\?xml[^?]*\?>", "", svg)
+                    svg = re.sub(r"<!DOCTYPE[^>]*>", "", svg)
+                    svg = svg.replace('class="typst-doc"', 'class="typst-canvas-svg"')
+                    result[cv.index] = svg
+            except Exception:
+                pass
+            finally:
+                src_file.unlink(missing_ok=True)
+
+    return result

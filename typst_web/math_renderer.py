@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import re
 import subprocess
-import tempfile
 from pathlib import Path
 
 # The font size used when compiling math. Must match the #set text() call below.
@@ -84,11 +83,14 @@ def compile_math_to_svgs(
     *,
     typ_dir: Path,
     font_paths: list[Path] | None = None,
+    preamble: str = "",
 ) -> list[str]:
     """
     Compile a list of Typst math expressions to SVG strings.
 
     Returns a list of SVG strings in the same order.
+    `preamble` is prepended to every page so custom #let / #import definitions
+    from the source document are available during math rendering.
     """
     if not expressions:
         return []
@@ -96,42 +98,54 @@ def compile_math_to_svgs(
     from .compiler import find_typst
     typst = find_typst()
 
+    page_header = (
+        "#set page(width: auto, height: auto, margin: (x: 0pt, y: 3pt))\n"
+        f"#set text(size: {_MATH_FONT_PT}pt)\n"
+    )
+    preamble_block = (preamble + "\n") if preamble else ""
+
     pages: list[str] = []
     for body, is_display in expressions:
         math = f"$ {body.strip()} $" if is_display else f"${body.strip()}$"
         # Use zero x-margin so display width matches content exactly.
         # Use small y-margin so inline expressions have a little breathing room
         # for ascenders/descenders (3pt = same as the _clean_svg constant above).
-        pages.append(
-            "#set page(width: auto, height: auto, margin: (x: 0pt, y: 3pt))\n"
-            f"#set text(size: {_MATH_FONT_PT}pt)\n"
-            + math
-        )
+        pages.append(page_header + preamble_block + math)
 
     doc = "\n#pagebreak()\n".join(pages)
 
-    with tempfile.TemporaryDirectory() as tmp:
-        src = Path(tmp) / "math_batch.typ"
+    # Write the batch file next to the source document so relative #import
+    # paths in the preamble resolve correctly.
+    src = typ_dir / "_typst_web_math_batch.typ"
+    svg_dir = typ_dir / "_typst_web_math_svgs"
+    svg_dir.mkdir(exist_ok=True)
+    out_pattern = svg_dir / "math-{p}.svg"
+    try:
         src.write_text(doc, encoding="utf-8")
-        out_pattern = Path(tmp) / "math-{p}.svg"
 
         cmd = [typst, "compile", str(src), str(out_pattern), "--format", "svg"]
         if font_paths:
             for fp in font_paths:
                 cmd += ["--font-path", str(fp)]
 
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
         if r.returncode != 0:
             return [""] * len(expressions)
 
         result: list[str] = []
         for i, (_, is_display) in enumerate(expressions):
-            svg_file = Path(tmp) / f"math-{i + 1}.svg"
+            svg_file = svg_dir / f"math-{i + 1}.svg"
             if svg_file.exists():
                 result.append(_clean_svg(
                     svg_file.read_text(encoding="utf-8"), i + 1, is_display
                 ))
             else:
                 result.append("")
+    finally:
+        src.unlink(missing_ok=True)
+        if svg_dir.exists():
+            for f in svg_dir.iterdir():
+                f.unlink(missing_ok=True)
+            svg_dir.rmdir()
 
     return result

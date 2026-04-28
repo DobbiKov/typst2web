@@ -12,35 +12,85 @@ import re
 
 # ── Heading utilities ─────────────────────────────────────────────────────────
 
+def _parse_typst_toc(html: str) -> dict[str, dict]:
+    """
+    Parse Typst's built-in <nav role="doc-toc"> to extract heading metadata.
+    Returns {loc_id: {"level": int, "number": str, "text": str}}.
+    """
+    heading_map: dict[str, dict] = {}
+    toc_m = re.search(r'<nav\s[^>]*role="doc-toc"[^>]*>([\s\S]*?)</nav>', html)
+    if not toc_m:
+        return heading_map
+    toc_html = toc_m.group(0)
+    for m in re.finditer(
+        r'<a\s[^>]*href="#(loc-\d+)"[^>]*>'
+        r'(?:<[^>]*class="prefix"[^>]*>([^<]*)</[^>]*>)?\s*(.*?)</a>',
+        toc_html,
+        re.DOTALL,
+    ):
+        loc_id = m.group(1)
+        prefix = re.sub(r"\s+", " ", m.group(2) or "").strip()
+        text = re.sub(r"<[^>]+>", "", m.group(3)).strip()
+        level = prefix.count(".") + 1 if prefix else 1
+        heading_map[loc_id] = {"level": level, "number": prefix, "text": text}
+    return heading_map
+
+
+def _inject_headings_from_toc(html: str, heading_map: dict[str, dict]) -> str:
+    """
+    Replace <div id="loc-N">...</div> blocks with proper <h1>/<h2>/... elements.
+    """
+    if not heading_map:
+        return html
+
+    def _find_div_end(s: str, start: int) -> int:
+        depth = 0
+        i = start
+        while i < len(s):
+            if s[i:i+4].lower() == "<div":
+                depth += 1
+                i += 4
+            elif s[i:i+6].lower() == "</div>":
+                depth -= 1
+                if depth == 0:
+                    return i + 6
+                i += 6
+            else:
+                i += 1
+        return len(s)
+
+    result = html
+    loc_positions = []
+    for m in re.finditer(r'<div\s[^>]*id="(loc-\d+)"[^>]*>', result):
+        loc_positions.append((m.start(), m.end(), m.group(1)))
+
+    for div_start, _div_content_start, loc_id in reversed(loc_positions):
+        if loc_id not in heading_map:
+            continue
+        info = heading_map[loc_id]
+        level = min(info["level"], 6)
+        tag = f"h{level}"
+        prefix = info["number"]
+        text = info["text"].replace("&", "&amp;").replace("<", "&lt;")
+        div_end = _find_div_end(result, div_start)
+        prefix_html = f'<span class="heading-number">{prefix}</span>\u00a0' if prefix else ""
+        anchor = f'<a class="heading-anchor" href="#{loc_id}" aria-label="Link to this section">#</a>'
+        result = result[:div_start] + f'<{tag} id="{loc_id}">{prefix_html}{text}{anchor}</{tag}>' + result[div_end:]
+
+    return result
+
+
 def _extract_headings(html: str) -> list[dict]:
     headings = []
-    slug_counts: dict[str, int] = {}
     for m in re.finditer(r"<h([1-6])[^>]*>(.*?)</h\1>", html, re.IGNORECASE | re.DOTALL):
         level = int(m.group(1))
-        text = re.sub(r"<[^>]+>", "", m.group(2)).strip()
-        slug = re.sub(r"[^\w\s-]", "", text.lower())
-        slug = re.sub(r"[\s_]+", "-", slug).strip("-") or "section"
-        count = slug_counts.get(slug, 0)
-        slug_counts[slug] = count + 1
-        headings.append({"level": level, "text": text, "id": slug if count == 0 else f"{slug}-{count}"})
+        raw_inner = m.group(2)
+        text = re.sub(r'<a class="heading-anchor"[^>]*>[^<]*</a>', "", raw_inner)
+        text = re.sub(r"<[^>]+>", "", text).strip()
+        id_m = re.search(r'\bid="([^"]+)"', m.group(0))
+        if id_m:
+            headings.append({"level": level, "text": text, "id": id_m.group(1)})
     return headings
-
-
-def _inject_heading_anchors(html: str) -> str:
-    slug_counts: dict[str, int] = {}
-
-    def replace(m: re.Match) -> str:
-        tag, inner = m.group(1), m.group(2)
-        text = re.sub(r"<[^>]+>", "", inner).strip()
-        slug = re.sub(r"[^\w\s-]", "", text.lower())
-        slug = re.sub(r"[\s_]+", "-", slug).strip("-") or "section"
-        count = slug_counts.get(slug, 0)
-        slug_counts[slug] = count + 1
-        final = slug if count == 0 else f"{slug}-{count}"
-        anchor = f'<a class="heading-anchor" href="#{final}" aria-label="Link to this section">#</a>'
-        return f'<{tag} id="{final}">{inner}{anchor}</{tag}>'
-
-    return re.sub(r"<(h[1-6])>(.*?)</h[1-6]>", replace, html, flags=re.IGNORECASE | re.DOTALL)
 
 
 # ── Figure SVG injection ──────────────────────────────────────────────────────
@@ -95,6 +145,24 @@ def _inject_math_svgs(html: str, math_svgs: list[str], expressions) -> str:
     return html
 
 
+# ── Canvas SVG injection ──────────────────────────────────────────────────────
+
+def _inject_canvas_svgs(html: str, canvas_svgs: list[str]) -> str:
+    """Replace <div data-canvas="N"> placeholders with compiled canvas SVGs."""
+    for n, svg in enumerate(canvas_svgs):
+        if not svg:
+            continue
+        replacement = f'<div class="canvas-figure">{svg}</div>'
+        html = re.sub(
+            rf'<div[^>]*\bdata-canvas="{n}"[^>]*>.*?</div>',
+            replacement,
+            html,
+            count=1,
+            flags=re.DOTALL,
+        )
+    return html
+
+
 # ── TOC ───────────────────────────────────────────────────────────────────────
 
 def _build_toc_html(headings: list[dict]) -> str:
@@ -119,6 +187,7 @@ def build_web_page(
     math_svgs: list[str],
     expressions,            # list[MathExpr] from preprocessor
     *,
+    canvas_svgs: list[str] | None = None,
     title: str = "",
     authors: list[str] | None = None,
     date: str = "",
@@ -130,9 +199,14 @@ def build_web_page(
     body_m = re.search(r"<body>([\s\S]*)</body>", typst_html, re.IGNORECASE)
     content = body_m.group(1).strip() if body_m else typst_html
 
-    content = _inject_heading_anchors(content)
+    # Parse Typst's built-in TOC before any transformations
+    heading_map = _parse_typst_toc(content)
+
+    content = _inject_headings_from_toc(content, heading_map)
     content = _inject_figures(content, figure_svgs)
     content = _inject_math_svgs(content, math_svgs, expressions)
+    if canvas_svgs:
+        content = _inject_canvas_svgs(content, canvas_svgs)
 
     headings = _extract_headings(content)
     toc_html = _build_toc_html(headings)
@@ -356,8 +430,13 @@ figcaption { font-family: var(--font-ui); font-size: 0.85rem; color: var(--text-
 }
 .math-fallback { font-size: 0.85em; color: var(--text-muted); }
 
-/* ── Figure SVG ──────────────────────────────────────────────────────── */
+/* ── Figure and canvas SVG ───────────────────────────────────────────── */
 .typst-figure-svg { display: block; max-width: 100%; height: auto; margin: 0 auto; }
+.typst-canvas-svg { display: block; max-width: 100%; height: auto; margin: 0 auto; }
+.canvas-figure { text-align: center; margin: 1.5rem 0; }
+
+/* ── Heading numbers ─────────────────────────────────────────────────── */
+.heading-number { color: var(--text-muted); font-size: 0.9em; }
 
 /* ── Scrollbar ───────────────────────────────────────────────────────── */
 #sidebar::-webkit-scrollbar { width: 5px; }
