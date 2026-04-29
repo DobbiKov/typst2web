@@ -435,6 +435,44 @@ figcaption { font-family: var(--font-ui); font-size: 0.85rem; color: var(--text-
 .typst-canvas-svg { display: block; max-width: 100%; height: auto; margin: 0 auto; }
 .canvas-figure { text-align: center; margin: 1.5rem 0; }
 
+/* ── Theorem environments ─────────────────────────────────────────────── */
+.typst-thm {
+  margin: 1.2rem 0;
+  padding: 0.75rem 1rem;
+  border-radius: var(--radius);
+  border-left: 3px solid var(--accent);
+  background: var(--bg-alt);
+  font-size: 0.97em;
+}
+.typst-thm .thm-head {
+  display: inline;
+  color: var(--accent);
+  font-family: var(--font-ui);
+  font-size: 0.9em;
+}
+/* Per-type accent colors */
+.typst-defn  { border-left-color: #2563eb; }
+.typst-defn  .thm-head { color: #2563eb; }
+.typst-thm-env { border-left-color: #7c3aed; }
+.typst-thm-env .thm-head { color: #7c3aed; }
+.typst-lem   { border-left-color: #7c3aed; }
+.typst-lem   .thm-head { color: #7c3aed; }
+.typst-prop  { border-left-color: #7c3aed; }
+.typst-prop  .thm-head { color: #7c3aed; }
+.typst-cor   { border-left-color: #9333ea; }
+.typst-cor   .thm-head { color: #9333ea; }
+.typst-rmk   { border-left-color: #0891b2; }
+.typst-rmk   .thm-head { color: #0891b2; }
+.typst-ex    { border-left-color: #059669; }
+.typst-ex    .thm-head { color: #059669; }
+.typst-proof, .typst-soln { border-left-color: #64748b; background: none; }
+.typst-proof .thm-head, .typst-soln .thm-head { color: #64748b; }
+.typst-rmnd  { border-left-color: #d97706; }
+.typst-rmnd  .thm-head { color: #d97706; }
+.typst-todo  { border-left-color: #dc2626; background: #fff1f2; }
+.typst-todo  .thm-head { color: #dc2626; }
+[data-theme="dark"] .typst-thm { background: rgba(255,255,255,.04); }
+
 /* ── Heading numbers ─────────────────────────────────────────────────── */
 .heading-number { color: var(--text-muted); font-size: 0.9em; }
 

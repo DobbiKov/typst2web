@@ -18,6 +18,149 @@ from .preprocessor import preprocess_file
 
 _IMPORT_OR_LET_RE = re.compile(r"^(#import\b|#let\b)")
 
+# ── Theorem environment HTML overrides ───────────────────────────────────────
+
+# Maps language code → {env-name → display label}
+_THM_LABELS: dict[str, dict[str, str]] = {
+    "en": {
+        "defn": "Definition", "thm": "Theorem", "lem": "Lemma",
+        "prop": "Proposition", "cor": "Corollary", "rmk": "Remark",
+        "ex": "Example", "proof": "Proof", "soln": "Solution",
+        "claim": "Claim", "notation": "Notation", "conj": "Conjecture",
+        "insight": "Insight", "exer": "Exercise", "exerstar": "Exercise (*)",
+        "prob": "Problem", "ques": "Question", "fact": "Fact",
+        "rmnd": "Reminder", "todo": "TODO",
+    },
+    "fr": {
+        "defn": "D\u00e9finition", "thm": "Th\u00e9or\u00e8me", "lem": "Lemme",
+        "prop": "Proposition", "cor": "Corollaire", "rmk": "Remarque",
+        "ex": "Exemple", "proof": "Preuve", "soln": "Solution",
+        "claim": "Assertion", "notation": "Notation", "conj": "Conjecture",
+        "insight": "Intuition", "exer": "Exercice", "exerstar": "Exercice (*)",
+        "prob": "Probl\u00e8me", "ques": "Question", "fact": "Fait",
+        "rmnd": "Rappel", "todo": "TODO",
+    },
+    "ua": {
+        "defn": "\u041e\u0437\u043d\u0430\u0447\u0435\u043d\u043d\u044f",
+        "thm": "\u0422\u0435\u043e\u0440\u0435\u043c\u0430",
+        "lem": "\u041b\u0435\u043c\u0430",
+        "prop": "\u041f\u0440\u043e\u043f\u043e\u0437\u0438\u0446\u0456\u044f",
+        "cor": "\u041d\u0430\u0441\u043b\u0456\u0434\u043e\u043a",
+        "rmk": "\u0417\u0430\u0443\u0432\u0430\u0436\u0435\u043d\u043d\u044f",
+        "ex": "\u041f\u0440\u0438\u043a\u043b\u0430\u0434",
+        "proof": "\u0414\u043e\u0432\u0435\u0434\u0435\u043d\u043d\u044f",
+        "soln": "\u0420\u043e\u0437\u0432\u2019\u044f\u0437\u043e\u043a",
+        "claim": "\u0422\u0432\u0435\u0440\u0434\u0436\u0435\u043d\u043d\u044f",
+        "notation": "\u041f\u043e\u0437\u043d\u0430\u0447\u0435\u043d\u043d\u044f",
+        "conj": "\u0413\u0456\u043f\u043e\u0442\u0435\u0437\u0430",
+        "insight": "\u0406\u043d\u0442\u0443\u0456\u0446\u0456\u044f",
+        "exer": "\u0412\u043f\u0440\u0430\u0432\u0430",
+        "exerstar": "\u0412\u043f\u0440\u0430\u0432\u0430 (*)",
+        "prob": "\u0417\u0430\u0434\u0430\u0447\u0430",
+        "ques": "\u041f\u0438\u0442\u0430\u043d\u043d\u044f",
+        "fact": "\u0424\u0430\u043a\u0442",
+        "rmnd": "\u041d\u0430\u0433\u0430\u0434\u0443\u0432\u0430\u043d\u043d\u044f",
+        "todo": "TODO",
+    },
+}
+
+_LANG_RE = re.compile(r'language:\s*"([a-z]{2})"')
+
+
+def _detect_language(typ_path: Path) -> str:
+    """Detect document language from dobbikov template call."""
+    try:
+        text = typ_path.read_text(encoding="utf-8")
+        m = _LANG_RE.search(text)
+        return m.group(1) if m else "en"
+    except OSError:
+        return "en"
+
+
+def _build_thm_overrides(lang: str) -> str:
+    """
+    Build Typst source that overrides all known theorem environments to emit
+    html.elem divs so their content survives Typst HTML export.
+    """
+    labels = _THM_LABELS.get(lang, _THM_LABELS["en"])
+
+    env_overrides = "\n".join(
+        f'#let {kind}(..args) = _tw-env("{kind}", "{label}", ..args)'
+        for kind, label in labels.items()
+    )
+    return (
+        '// typst-to-web: theorem environment HTML overrides\n'
+        '#let _tw-env(kind, lbl, ..args) = {\n'
+        '  let pos-args = args.pos()\n'
+        '  let named-args = args.named()\n'
+        '  let body = pos-args.last()\n'
+        '  let opt-name = if pos-args.len() > 1 {\n'
+        '    pos-args.first()\n'
+        '  } else if "info" in named-args {\n'
+        '    named-args.at("info")\n'
+        '  } else { none }\n'
+        '  // figure() auto-increments the per-kind counter and IS labelable\n'
+        '  figure(\n'
+        '    html.elem("div", attrs: ("class": "typst-thm typst-" + kind), [\n'
+        '      #html.elem("span", attrs: ("class": "thm-head"), strong([\n'
+        '        #lbl #context counter(figure.where(kind: "_tw-" + kind)).display()'
+        '#if opt-name != none [ (#opt-name)].\n'
+        '      ]))\n'
+        '      #linebreak()\n'
+        '      #body\n'
+        '    ]),\n'
+        '    kind: "_tw-" + kind,\n'
+        '    supplement: lbl,\n'
+        '    outlined: false,\n'
+        '    caption: none,\n'
+        '  )\n'
+        '}\n'
+        '// Render @label references to theorem environments as linked "Lbl N"\n'
+        '#show ref: it => {\n'
+        '  if it.element != none and it.element.func() == figure {\n'
+        '    let k = it.element.kind\n'
+        '    if k.starts-with("_tw-") {\n'
+        '      let lbl = it.element.supplement\n'
+        '      let n = it.element.counter.display(it.element.numbering)\n'
+        '      html.elem("span", attrs: ("class": "thm-ref"), [#lbl #n])\n'
+        '    } else { it }\n'
+        '  } else { it }\n'
+        '}\n'
+    ) + env_overrides + "\n"
+
+
+def _inject_thm_overrides(source: str, lang: str) -> str:
+    """
+    Inject theorem override definitions into preprocessed Typst source,
+    right after the last top-level #import line so they shadow the imports.
+    """
+    override_block = "\n" + _build_thm_overrides(lang) + "\n"
+    lines = source.splitlines(keepends=True)
+    # Inject after the FIRST top-level import block (consecutive #import lines
+    # at the start of the file).  Do NOT use the last import, which may be a
+    # mid-document `#import "figures/..."` that comes after content.
+    first_import_idx = -1
+    for i, line in enumerate(lines):
+        if re.match(r"^\s*#import\b", line):
+            if first_import_idx == -1:
+                first_import_idx = i
+        elif first_import_idx != -1 and line.strip() and not line.strip().startswith("//"):
+            # First non-blank, non-comment line after imports → stop scanning
+            break
+    # Find the end of the initial import block
+    last_top_import = first_import_idx
+    if first_import_idx >= 0:
+        for i in range(first_import_idx, len(lines)):
+            s = lines[i].strip()
+            if re.match(r"^\s*#import\b", lines[i]) or not s or s.startswith("//"):
+                if re.match(r"^\s*#import\b", lines[i]):
+                    last_top_import = i
+            else:
+                break
+    insert_at = last_top_import + 1 if last_top_import >= 0 else 0
+    lines.insert(insert_at, override_block)
+    return "".join(lines)
+
 
 def _extract_preamble(typ_path: Path) -> str:
     """
@@ -80,17 +223,22 @@ def main(argv: list[str] | None = None) -> int:
     n_files   = 1 + len(pp.included)
     print(f"      {n_files} file(s), {n_inline} inline + {n_display} display math expressions.", flush=True)
 
+    # Inject HTML overrides for theorem environments (they are dropped by
+    # Typst HTML export unless their function definitions are replaced).
+    lang = _detect_language(typ_path)
+    main_source = _inject_thm_overrides(pp.source, lang)
+
     # Write all preprocessed sources next to their originals so relative
     # imports and includes resolve correctly during typst compilation.
     temp_files: list[Path] = []
     pp_path = typ_path.parent / f"_typst_web_pp_{typ_path.name}"
     try:
-        pp_path.write_text(pp.source, encoding="utf-8")
+        pp_path.write_text(main_source, encoding="utf-8")
         temp_files.append(pp_path)
 
         for orig_path, src in pp.included.items():
             tp = orig_path.parent / f"_typst_web_pp_{orig_path.name}"
-            tp.write_text(src, encoding="utf-8")
+            tp.write_text(_inject_thm_overrides(src, lang), encoding="utf-8")
             temp_files.append(tp)
 
         # ── 2. Compile HTML ───────────────────────────────────────────────────
