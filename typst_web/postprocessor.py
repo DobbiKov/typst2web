@@ -131,7 +131,23 @@ def _inject_math_svgs(html: str, math_svgs: list[str], expressions) -> str:
             label_attr = f' id="math-{expr.label}"' if expr.label else ""
             replacement = f'<div class="math-display"{label_attr}>{svg}</div>'
         else:
-            replacement = f'<span class="math-inline">{svg}</span>'
+            # Move vertical-align from the SVG element to the <span> wrapper so
+            # that display:inline-block on the span properly expands the line box.
+            # Also inject overflow:visible on the SVG root so glyphs that extend
+            # slightly past the Typst-generated viewBox are not clipped.
+            va_m = re.search(r'vertical-align:([^;]+);', svg)
+            if va_m:
+                va = va_m.group(1)
+                svg_clean = svg.replace(f'vertical-align:{va};', '', 1)
+            else:
+                va, svg_clean = '0', svg
+            # Inject overflow:visible into SVG root style attribute
+            svg_clean = re.sub(
+                r'(<svg[^>]+style=")([^"]*)"',
+                lambda m: m.group(1) + 'overflow:visible;' + m.group(2) + '"',
+                svg_clean, count=1,
+            )
+            replacement = f'<span class="math-inline" style="vertical-align:{va}">{svg_clean}</span>'
 
         # Match either <span data-math="N"></span> or <div data-math="N"></div>
         html = re.sub(
@@ -419,12 +435,16 @@ figcaption { font-family: var(--font-ui); font-size: 0.85rem; color: var(--text-
 
 /* ── Math (server-side SVG, em-sized) ───────────────────────────────── */
 .math-inline {
-  display: inline;
+  display: inline-block;
+  line-height: 0;     /* prevent phantom line-gap; SVG height controls line box */
   white-space: nowrap;
+  overflow: visible;  /* allow SVG content that slightly overflows the span */
+  /* vertical-align is set per-element as inline style by the injector */
 }
 .math-inline svg {
-  display: inline;
-  /* width/height/vertical-align are set as inline style by math_renderer */
+  display: block;     /* block inside inline-block: no extra inline gap below */
+  overflow: visible;  /* SVG default is hidden; glyphs can extend past viewBox */
+  /* width/height are set as inline style by math_renderer */
 }
 .math-display {
   display: block;
