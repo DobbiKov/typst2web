@@ -339,7 +339,8 @@ body {
 .toc-empty { padding: 12px 16px; font-size: 13px; color: #4a5280; }
 
 /* ── Main ─────────────────────────────────────────────────────────────── */
-#main { margin-left: var(--sidebar-w); flex: 1; min-width: 0; display: flex; flex-direction: column; }
+#main { margin-left: var(--sidebar-w); flex: 1; min-width: 0; display: flex; flex-direction: column; transition: margin-left var(--transition); }
+#main.sidebar-hidden { margin-left: 0; }
 
 /* ── Topbar ──────────────────────────────────────────────────────────── */
 #topbar {
@@ -554,12 +555,23 @@ function toggleTheme() {
 })();
 
 const sidebar = document.getElementById("sidebar");
-function toggleSidebar() {
-  sidebar.classList.toggle("open");
-  sidebar.classList.toggle("hidden");
-  localStorage.setItem("typst-web-sidebar", sidebar.classList.contains("hidden") ? "hidden" : "open");
+const mainEl = document.getElementById("main");
+function setSidebarHidden(hidden) {
+  sidebar.classList.toggle("hidden", hidden);
+  sidebar.classList.toggle("open", !hidden);
+  mainEl.classList.toggle("sidebar-hidden", hidden);
 }
-if (window.innerWidth <= 900) sidebar.classList.add("hidden");
+function toggleSidebar() {
+  const hidden = !sidebar.classList.contains("hidden");
+  setSidebarHidden(hidden);
+  localStorage.setItem("typst-web-sidebar", hidden ? "hidden" : "open");
+}
+(function() {
+  const saved = localStorage.getItem("typst-web-sidebar");
+  if (saved === "hidden" || (saved === null && window.innerWidth <= 900)) {
+    setSidebarHidden(true);
+  }
+})();
 
 (function() {
   const authors = "{{AUTHORS_STR}}";
