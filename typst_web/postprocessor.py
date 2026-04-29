@@ -292,7 +292,7 @@ body {
   background: var(--sidebar-bg); color: var(--sidebar-txt);
   display: flex; flex-direction: column;
   position: fixed; top: 0; left: 0; bottom: 0;
-  overflow-y: auto; z-index: 50;
+  overflow: hidden; z-index: 50;
   transition: transform var(--transition);
 }
 #sidebar.hidden { transform: translateX(-100%); }
@@ -313,7 +313,16 @@ body {
   font-family: var(--font-ui); font-size: 10px; font-weight: 700;
   text-transform: uppercase; letter-spacing: .08em;
   color: #4a5280; padding: 14px 16px 6px;
+  flex-shrink: 0;
 }
+/* Scrollable TOC container — flex: 1 + min-height: 0 are both required */
+#toc-scroll {
+  flex: 1; min-height: 0;
+  overflow-y: auto; overflow-x: hidden;
+  padding-bottom: 16px;
+}
+#toc-scroll::-webkit-scrollbar { width: 4px; }
+#toc-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,.12); border-radius: 2px; }
 .toc-link {
   display: block; font-family: var(--font-ui); font-size: 13px;
   color: var(--sidebar-txt); text-decoration: none;
@@ -321,12 +330,12 @@ body {
   transition: background var(--transition), color var(--transition);
   line-height: 1.4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.toc-link:hover { background: var(--sidebar-hover); }
+.toc-link:hover { background: var(--sidebar-hover); color: #e0e8ff; }
 .toc-link.active { color: var(--sidebar-active); background: rgba(122,162,247,.1); }
 .toc-h1 { font-weight: 600; font-size: 13.5px; }
-.toc-h2 { font-size: 12.5px; }
-.toc-h3 { font-size: 12px; color: #6b7aaa; }
-.toc-h4, .toc-h5, .toc-h6 { font-size: 11.5px; color: #5a6a9a; }
+.toc-h2 { font-size: 12.5px; color: #bbc6e8; }
+.toc-h3 { font-size: 12px; color: #9aa7cc; }
+.toc-h4, .toc-h5, .toc-h6 { font-size: 11.5px; color: #8090b8; }
 .toc-empty { padding: 12px 16px; font-size: 13px; color: #4a5280; }
 
 /* ── Main ─────────────────────────────────────────────────────────────── */
@@ -476,9 +485,7 @@ figcaption { font-family: var(--font-ui); font-size: 0.85rem; color: var(--text-
 /* ── Heading numbers ─────────────────────────────────────────────────── */
 .heading-number { color: var(--text-muted); font-size: 0.9em; }
 
-/* ── Scrollbar ───────────────────────────────────────────────────────── */
-#sidebar::-webkit-scrollbar { width: 5px; }
-#sidebar::-webkit-scrollbar-thumb { background: rgba(255,255,255,.1); border-radius: 3px; }
+/* (scrollbar rules are on #toc-scroll above) */
 
 /* ── Responsive ──────────────────────────────────────────────────────── */
 @media (max-width: 900px) {
@@ -510,7 +517,9 @@ figcaption { font-family: var(--font-ui); font-size: 0.85rem; color: var(--text-
     <div class="sidebar-doc-title">{{TITLE}}</div>
   </div>
   <div class="toc-section-label">Contents</div>
-  {{TOC_HTML}}
+  <div id="toc-scroll">
+    {{TOC_HTML}}
+  </div>
 </nav>
 
 <div id="main">
@@ -565,13 +574,28 @@ if (window.innerWidth <= 900) sidebar.classList.add("hidden");
 (function() {
   const links = Array.from(document.querySelectorAll(".toc-link"));
   if (!links.length) return;
+  const tocScroll = document.getElementById("toc-scroll");
   const headings = links.map(l => document.getElementById(l.getAttribute("href").slice(1)));
   const obs = new IntersectionObserver(entries => {
     for (const e of entries) {
       if (e.isIntersecting) {
         links.forEach(l => l.classList.remove("active"));
         const idx = headings.indexOf(e.target);
-        if (idx >= 0) { links[idx].classList.add("active"); links[idx].scrollIntoView({ block: "nearest" }); }
+        if (idx >= 0) {
+          links[idx].classList.add("active");
+          // Scroll the active link into view within the TOC panel
+          if (tocScroll) {
+            const linkTop = links[idx].offsetTop - tocScroll.offsetTop;
+            const linkBottom = linkTop + links[idx].offsetHeight;
+            const scrollTop = tocScroll.scrollTop;
+            const scrollBottom = scrollTop + tocScroll.clientHeight;
+            if (linkTop < scrollTop + 40) {
+              tocScroll.scrollTop = linkTop - 40;
+            } else if (linkBottom > scrollBottom - 40) {
+              tocScroll.scrollTop = linkBottom - tocScroll.clientHeight + 40;
+            }
+          }
+        }
       }
     }
   }, { rootMargin: "-10% 0px -80% 0px", threshold: 0 });
