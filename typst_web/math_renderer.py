@@ -34,6 +34,9 @@ def _clean_svg(svg: str, idx: int, display: bool) -> str:
     svg = re.sub(r"<\?xml[^?]*\?>", "", svg)
     svg = re.sub(r"<!DOCTYPE[^>]*>", "", svg)
 
+    # Remove Typst's white background rectangle so math is transparent
+    svg = re.sub(r'<path[^>]*fill="#ffffff"[^>]*/>', "", svg)
+
     # Namespace ids
     svg = re.sub(r'\bid="', f'id="m{idx}-', svg)
     svg = re.sub(r'(xlink:href|href)="#', rf'\1="#m{idx}-', svg)
