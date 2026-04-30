@@ -316,7 +316,10 @@ def preprocess(source: str) -> PreprocessResult:
 _INCLUDE_RE = re.compile(r'#include\s+"([^"]+)"')
 
 
-def preprocess_file(typ_path: Path) -> PreprocessResult:
+def preprocess_file(
+    typ_path: Path,
+    source_transform=None,
+) -> PreprocessResult:
     """
     Preprocess a .typ file and all its #include'd files recursively.
 
@@ -326,11 +329,19 @@ def preprocess_file(typ_path: Path) -> PreprocessResult:
 
     The caller is responsible for writing the preprocessed sources to disk
     and cleaning them up afterward.
+
+    `source_transform`, if provided, is called as `source_transform(source)`
+    on each file's raw text before math extraction, allowing callers to
+    rewrite source patterns (e.g. text-mode math.op calls) before the
+    preprocessor sees them.
     """
     expressions: list[MathExpr] = []
     canvases: list[CanvasExpr] = []
     included: dict[Path, str] = {}
-    _preprocess_recursive(typ_path.resolve(), expressions, canvases, included, set())
+    _preprocess_recursive(
+        typ_path.resolve(), expressions, canvases, included, set(),
+        source_transform=source_transform,
+    )
     # The main file's preprocessed source is stored in included[typ_path]
     main_source = included.pop(typ_path.resolve())
     return PreprocessResult(
@@ -344,6 +355,8 @@ def _preprocess_recursive(
     canvases: list[CanvasExpr],
     included: dict[Path, str],
     seen: set[Path],
+    *,
+    source_transform=None,
 ) -> None:
     """Depth-first preprocessing of path and all its #include'd children."""
     if path in seen:
@@ -355,6 +368,9 @@ def _preprocess_recursive(
     except OSError:
         return  # file missing or unreadable — leave as-is, Typst will error
 
+    if source_transform is not None:
+        source = source_transform(source)
+
     # Preprocess this file's math + canvases, sharing the global lists
     pp = _preprocess_with_shared_lists(source, expressions, canvases, path)
 
@@ -363,7 +379,10 @@ def _preprocess_recursive(
     def _patch_include(m: re.Match) -> str:
         rel = m.group(1)
         child_path = (path.parent / rel).resolve()
-        _preprocess_recursive(child_path, expressions, canvases, included, seen)
+        _preprocess_recursive(
+            child_path, expressions, canvases, included, seen,
+            source_transform=source_transform,
+        )
         if child_path in included:
             # The temp file sits next to the original child file.
             # Rebuild a relative path from the *current* file's dir to the temp file.

@@ -149,12 +149,14 @@ def _inject_math_svgs(html: str, math_svgs: list[str], expressions) -> str:
             )
             replacement = f'<span class="math-inline" style="vertical-align:{va}">{svg_clean}</span>'
 
-        # Match either <span data-math="N"></span> or <div data-math="N"></div>
+        # Match the exact tag (span or div) with data-math="N" and close it with
+        # the same tag name. Using a backreference prevents a <div data-math="N">
+        # from being closed by the first </span> of nested content, which would
+        # silently swallow the next placeholder.
         html = re.sub(
-            rf'<(?:span|div)[^>]*\bdata-math="{n}"[^>]*>.*?</(?:span|div)>',
+            rf'<(span|div)[^>]*\bdata-math="{n}"[^>]*>.*?</\1>',
             replacement,
             html,
-            count=1,
             flags=re.DOTALL,
         )
 

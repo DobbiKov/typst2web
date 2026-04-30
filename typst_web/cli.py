@@ -162,6 +162,48 @@ def _inject_thm_overrides(source: str, lang: str) -> str:
     return "".join(lines)
 
 
+_MATHOP_DEF_RE = re.compile(
+    r'#let\s+(\w+)\s*=\s*math\.op\(\s*"([^"]+)"'
+)
+
+
+def _collect_mathop_names(sources: list[str]) -> dict[str, str]:
+    """
+    Scan source texts for `#let NAME = math.op("TEXT" ...)` definitions.
+    Returns {NAME: TEXT}.
+    """
+    result: dict[str, str] = {}
+    for src in sources:
+        for m in _MATHOP_DEF_RE.finditer(src):
+            result[m.group(1)] = m.group(2)
+    return result
+
+
+def _rewrite_mathop_textmode(source: str, mathop_names: dict[str, str]) -> str:
+    """
+    Rewrite `#NAME ($expr$)` text-mode calls (with optional space before `(`)
+    to `$NAME(expr)$` so Typst HTML export doesn't silently drop the operator
+    name.  Only handles the common pattern where the argument is a single
+    inline math expression.
+
+    Also rewrites bare `#NAME` (used as content value, no call) to `$NAME$`.
+    """
+    for name in mathop_names:
+        # #NAME ($expr$) → $NAME(expr)$   (space before ( is the usual bug)
+        source = re.sub(
+            rf'#(?:{re.escape(name)})\s*\(\$([^$]*)\$\)',
+            lambda m, n=name: f'${n}({m.group(1)})$',
+            source,
+        )
+        # Bare #NAME not followed by ( → $NAME$
+        source = re.sub(
+            rf'#(?:{re.escape(name)})(?!\s*\()',
+            f'${name}$',
+            source,
+        )
+    return source
+
+
 def _extract_preamble(typ_path: Path) -> str:
     """
     Collect #import and #let lines from the main .typ file so that custom math
@@ -217,7 +259,22 @@ def main(argv: list[str] | None = None) -> int:
 
     # ── 1. Preprocess: extract math from main + all #include'd files ─────────
     print(f"[1/4] Preprocessing {typ_path.name}…", flush=True)
-    pp = preprocess_file(typ_path)
+
+    # Collect math.op definitions from raw .typ files (including #import'ed
+    # ones like preamble.typ) so we can rewrite text-mode calls like
+    # `#Bern ($theta$)` → `$Bern(theta)$` BEFORE math extraction.
+    raw_sources: list[str] = []
+    for p in typ_path.parent.glob("*.typ"):
+        try:
+            raw_sources.append(p.read_text(encoding="utf-8"))
+        except OSError:
+            pass
+    mathop_names = _collect_mathop_names(raw_sources)
+
+    def _source_transform(src: str) -> str:
+        return _rewrite_mathop_textmode(src, mathop_names)
+
+    pp = preprocess_file(typ_path, source_transform=_source_transform if mathop_names else None)
     n_inline  = sum(1 for e in pp.expressions if not e.display)
     n_display = sum(1 for e in pp.expressions if e.display)
     n_files   = 1 + len(pp.included)
@@ -226,7 +283,11 @@ def main(argv: list[str] | None = None) -> int:
     # Inject HTML overrides for theorem environments (they are dropped by
     # Typst HTML export unless their function definitions are replaced).
     lang = _detect_language(typ_path)
-    main_source = _inject_thm_overrides(pp.source, lang)
+
+    def _prepare_source(src: str) -> str:
+        return _inject_thm_overrides(src, lang)
+
+    main_source = _prepare_source(pp.source)
 
     # Write all preprocessed sources next to their originals so relative
     # imports and includes resolve correctly during typst compilation.
@@ -238,7 +299,7 @@ def main(argv: list[str] | None = None) -> int:
 
         for orig_path, src in pp.included.items():
             tp = orig_path.parent / f"_typst_web_pp_{orig_path.name}"
-            tp.write_text(_inject_thm_overrides(src, lang), encoding="utf-8")
+            tp.write_text(_prepare_source(src), encoding="utf-8")
             temp_files.append(tp)
 
         # ── 2. Compile HTML ───────────────────────────────────────────────────
