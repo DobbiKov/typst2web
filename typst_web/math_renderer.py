@@ -37,6 +37,11 @@ def _clean_svg(svg: str, idx: int, display: bool) -> str:
     # Remove Typst's white background rectangle so math is transparent
     svg = re.sub(r'<path[^>]*fill="#ffffff"[^>]*/>', "", svg)
 
+    # Make text color inherit from surrounding CSS so dark/light theme works.
+    # Covers both fill="#000000" on <path> elements and on <use> glyph refs.
+    svg = re.sub(r'fill="#000000"', 'fill="currentColor"', svg)
+    svg = re.sub(r"fill='#000000'", "fill='currentColor'", svg)
+
     # Namespace ids
     svg = re.sub(r'\bid="', f'id="m{idx}-', svg)
     svg = re.sub(r'(xlink:href|href)="#', rf'\1="#m{idx}-', svg)

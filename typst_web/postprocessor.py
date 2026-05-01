@@ -505,6 +505,15 @@ figcaption { font-family: var(--font-ui); font-size: 0.85rem; color: var(--text-
 .typst-todo  .thm-head { color: #dc2626; }
 [data-theme="dark"] .typst-thm { background: rgba(255,255,255,.04); }
 
+/* ── SVG dark-mode ───────────────────────────────────────────────────── */
+/* Math SVGs use fill="currentColor" so they follow --text automatically.  */
+/* Canvas/figure SVGs are diagrams with a white background — invert them  */
+/* so they appear as dark-background diagrams in dark mode.               */
+[data-theme="dark"] .typst-canvas-svg,
+[data-theme="dark"] .typst-figure-svg {
+  filter: invert(1) hue-rotate(180deg);
+}
+
 /* ── Heading numbers ─────────────────────────────────────────────────── */
 .heading-number { color: var(--text-muted); font-size: 0.9em; }
 
