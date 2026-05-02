@@ -348,7 +348,8 @@ def preprocess(source: str) -> PreprocessResult:
     label_map = {e.label: e.index for e in expressions if e.label}
     for lbl, idx in label_map.items():
         if lbl in eq_counter:
-            ref_text = f"({eq_counter[lbl]})"
+            n = eq_counter[lbl]
+            ref_text = f'#html.elem("a", attrs: ("href": "#math-{lbl}", "class": "eq-ref"), [({n})])'
         else:
             ref_text = f"(eq. {idx + 1})"
         result_src = re.sub(

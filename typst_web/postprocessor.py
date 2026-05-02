@@ -477,6 +477,8 @@ figcaption { font-family: var(--font-ui); font-size: 0.85rem; color: var(--text-
 }
 .math-numbered svg { display: inline-block; max-width: 100%; vertical-align: middle; }
 .eq-number { color: var(--text-muted); font-size: 0.9em; white-space: nowrap; }
+.eq-ref { color: var(--accent); text-decoration: none; }
+.eq-ref:hover { text-decoration: underline; }
 
 /* ── Figure and canvas SVG ───────────────────────────────────────────── */
 .typst-figure-svg { display: block; max-width: 100%; height: auto; margin: 0 auto; }
