@@ -129,7 +129,15 @@ def _inject_math_svgs(html: str, math_svgs: list[str], expressions) -> str:
             replacement = f'<code class="math-fallback">${raw}$</code>'
         elif expr.display:
             label_attr = f' id="math-{expr.label}"' if expr.label else ""
-            replacement = f'<div class="math-display"{label_attr}>{svg}</div>'
+            if getattr(expr, "numbered", False):
+                eq_num = sum(
+                    1 for e in expressions
+                    if e.index <= expr.index and getattr(e, "numbered", False)
+                )
+                num_html = f'<span class="eq-number">({eq_num})</span>'
+                replacement = f'<div class="math-display math-numbered"{label_attr}>{svg}{num_html}</div>'
+            else:
+                replacement = f'<div class="math-display"{label_attr}>{svg}</div>'
         else:
             # Move vertical-align from the SVG element to the <span> wrapper so
             # that display:inline-block on the span properly expands the line box.
@@ -461,6 +469,14 @@ figcaption { font-family: var(--font-ui); font-size: 0.85rem; color: var(--text-
   vertical-align: middle;
 }
 .math-fallback { font-size: 0.85em; color: var(--text-muted); }
+.math-numbered {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 1rem;
+}
+.math-numbered svg { display: inline-block; max-width: 100%; vertical-align: middle; }
+.eq-number { color: var(--text-muted); font-size: 0.9em; white-space: nowrap; }
 
 /* ── Figure and canvas SVG ───────────────────────────────────────────── */
 .typst-figure-svg { display: block; max-width: 100%; height: auto; margin: 0 auto; }

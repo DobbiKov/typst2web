@@ -22,6 +22,7 @@ class MathExpr:
     body: str        # raw Typst math body (without $ delimiters)
     display: bool    # True for display math ($ ... $), False for inline ($...$)
     label: str = ""  # optional label like "eq-gaussian"
+    numbered: bool = False  # True if wrapped in #math.equation(numbering:...)
 
 
 @dataclass
@@ -196,6 +197,42 @@ def preprocess(source: str) -> PreprocessResult:
                                             next_paren_is_call = False
                                             continue
 
+            # ── intercept #math.equation(numbering:..., block:true, $...$) ──
+            # Typst HTML export silently drops math.equation content when
+            # numbering is set.  We detect this pattern, extract the body,
+            # register it as a numbered display math expression, and emit our
+            # own placeholder so postprocessor can inject SVG + equation number.
+            if ident == "math.equation" and in_markup():
+                k = j
+                while k < n and source[k] in " \t\n":
+                    k += 1
+                if k < n and source[k] == "(":
+                    args_body, args_end = _extract_balanced(source, k, "(", ")")
+                    if args_body is not None and "numbering" in args_body:
+                        inner = args_body[1:-1]  # strip outer ( )
+                        # Find the display-math body: $ \n ... \n $
+                        dm = re.search(r'\$\s+([\s\S]*?)\s+\$', inner)
+                        if dm:
+                            math_body = dm.group(1)
+                            # Consume optional <label> after )
+                            rest = source[args_end:]
+                            skip = 0
+                            while skip < len(rest) and rest[skip] in " \t":
+                                skip += 1
+                            lm = re.match(r"<([\w:-]+)>", rest[skip:])
+                            label = ""
+                            label_end = args_end
+                            if lm:
+                                label = lm.group(1)
+                                label_end = args_end + skip + lm.end()
+                            idx = len(expressions)
+                            expressions.append(MathExpr(idx, math_body, display=True,
+                                                        label=label, numbered=True))
+                            out.append(_placeholder(idx, display=True))
+                            i = label_end
+                            next_paren_is_call = False
+                            continue
+
             # ── intercept #canvas({...}) in markup mode ───────────────────
             # canvas({...}) produces no output in Typst HTML export.
             # Replace the whole call with a placeholder div so we can inject
@@ -273,7 +310,7 @@ def preprocess(source: str) -> PreprocessResult:
                 skip = 0
                 while skip < len(rest) and rest[skip] in (" ", "\t"):
                     skip += 1
-                lm = re.match(r"<([\w-]+)>", rest[skip:])
+                lm = re.match(r"<([\w:-]+)>", rest[skip:])
                 if lm:
                     label = lm.group(1)
                     end_pos += skip + lm.end()
@@ -298,13 +335,25 @@ def preprocess(source: str) -> PreprocessResult:
         out.append(c)
         i += 1
 
-    # Replace @label references to consumed display math labels with plain text
+    # Replace @label references to consumed display math labels with plain text.
+    # Numbered equations (@eq:foo) get their equation counter, others get index.
     result_src = "".join(out)
+    # Build equation counter (1-based) for numbered expressions, in index order
+    eq_counter: dict[str, int] = {}
+    num = 0
+    for e in sorted(expressions, key=lambda e: e.index):
+        if e.label and e.numbered:
+            num += 1
+            eq_counter[e.label] = num
     label_map = {e.label: e.index for e in expressions if e.label}
     for lbl, idx in label_map.items():
+        if lbl in eq_counter:
+            ref_text = f"({eq_counter[lbl]})"
+        else:
+            ref_text = f"(eq. {idx + 1})"
         result_src = re.sub(
-            r"@" + re.escape(lbl) + r"\b",
-            f"(eq. {idx + 1})",
+            r"@" + re.escape(lbl) + r"(?![\w:-])",
+            ref_text,
             result_src,
         )
 
