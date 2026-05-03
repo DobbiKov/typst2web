@@ -346,6 +346,7 @@ _TEMPLATE = """\
   --shadow:      0 1px 3px rgba(0,0,0,.1);
   --radius:      6px;
   --transition:  0.18s ease;
+  --ai-panel-w:  360px;
 }
 [data-theme="dark"] {
   --bg:         #1a1a2e;
@@ -614,6 +615,108 @@ figcaption { font-family: var(--font-ui); font-size: 0.85rem; color: var(--text-
   #article { max-width: 100%; padding: 0; }
   .heading-anchor { display: none; }
 }
+/* ── AI Chat Panel ───────────────────────────────────────────────────── */
+#ai-panel {
+  position: fixed; top: 0; right: 0; bottom: 0; width: var(--ai-panel-w);
+  background: var(--sidebar-bg); color: var(--sidebar-txt);
+  display: flex; flex-direction: column;
+  transform: translateX(100%); transition: transform var(--transition);
+  z-index: 60; box-shadow: -4px 0 20px rgba(0,0,0,.3);
+  font-family: var(--font-ui);
+}
+#ai-panel.open { transform: translateX(0); }
+#ai-panel-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 16px; border-bottom: 1px solid rgba(255,255,255,.08);
+  flex-shrink: 0;
+}
+#ai-panel-title { font-size: 13px; font-weight: 600; color: #7aa2f7; text-transform: uppercase; letter-spacing: .06em; }
+#ai-messages {
+  flex: 1; min-height: 0; overflow-y: auto; padding: 12px;
+  display: flex; flex-direction: column; gap: 10px;
+}
+#ai-messages::-webkit-scrollbar { width: 4px; }
+#ai-messages::-webkit-scrollbar-thumb { background: rgba(255,255,255,.12); border-radius: 2px; }
+.ai-msg { max-width: 92%; padding: 8px 12px; border-radius: 10px; font-size: 13px; line-height: 1.55; word-wrap: break-word; }
+.ai-msg-user { align-self: flex-end; background: rgba(122,162,247,.25); border-bottom-right-radius: 3px; }
+.ai-msg-assistant { align-self: flex-start; background: rgba(255,255,255,.07); border-bottom-left-radius: 3px; }
+.ai-msg-error { align-self: flex-start; background: rgba(220,38,38,.15); color: #fca5a5; }
+.ai-msg code { background: rgba(0,0,0,.3); color: #c0caf5; padding: 1px 4px; border-radius: 3px; border: none; font-size: 0.88em; }
+.ai-msg pre { background: rgba(0,0,0,.3); color: #c0caf5; padding: 8px; border-radius: 4px; overflow-x: auto; margin: 4px 0; font-size: 0.85em; }
+.ai-msg pre code { background: none; padding: 0; }
+.ai-msg p { margin: 0.3rem 0; }
+.ai-msg p:first-child { margin-top: 0; }
+.ai-msg p:last-child { margin-bottom: 0; }
+.ai-msg strong { font-weight: 700; }
+.ai-msg em { font-style: italic; }
+#ai-context-bar {
+  flex-shrink: 0; padding: 8px 12px;
+  border-bottom: 1px solid rgba(255,255,255,.08);
+  background: rgba(122,162,247,.08);
+}
+#ai-context-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; color: #7aa2f7; font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+#ai-context-text { color: var(--sidebar-txt); opacity: .8; max-height: 64px; overflow: hidden; font-style: italic; font-size: 11px; line-height: 1.4; }
+#ai-input-area {
+  flex-shrink: 0; padding: 10px 12px; border-top: 1px solid rgba(255,255,255,.08);
+  display: flex; flex-direction: column; gap: 8px;
+}
+#ai-input {
+  width: 100%; background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.12);
+  border-radius: var(--radius); color: var(--sidebar-txt); font-family: var(--font-ui);
+  font-size: 13px; padding: 8px 10px; resize: none; min-height: 58px; max-height: 120px;
+  line-height: 1.4; outline: none; transition: border-color var(--transition);
+}
+#ai-input:focus { border-color: rgba(122,162,247,.5); }
+#ai-input-row { display: flex; justify-content: flex-end; gap: 6px; }
+#btn-ai-send {
+  padding: 7px 16px; background: #7aa2f7; color: #1a1a2e;
+  border: none; border-radius: var(--radius); cursor: pointer; font-size: 13px; font-weight: 600;
+  font-family: var(--font-ui); transition: background var(--transition); white-space: nowrap;
+}
+#btn-ai-send:hover { background: #9db8f8; }
+#btn-ai-send:disabled { opacity: .5; cursor: not-allowed; }
+
+/* Settings modal */
+#ai-settings-overlay {
+  display: none; position: fixed; inset: 0; background: rgba(0,0,0,.6); z-index: 80;
+  align-items: center; justify-content: center;
+}
+#ai-settings-overlay.open { display: flex; }
+#ai-settings-box {
+  background: var(--bg); color: var(--text); border-radius: 10px;
+  width: 440px; max-width: 94vw; max-height: 90vh; overflow-y: auto;
+  box-shadow: 0 8px 40px rgba(0,0,0,.4);
+}
+.ai-stt-hdr {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 16px 20px; border-bottom: 1px solid var(--border);
+}
+.ai-stt-hdr span { font-weight: 600; font-family: var(--font-ui); font-size: 15px; }
+.ai-stt-body { padding: 20px; display: flex; flex-direction: column; gap: 14px; }
+.ai-field label { display: block; font-size: 11px; font-weight: 700; font-family: var(--font-ui); color: var(--text-muted); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 5px; }
+.ai-field input, .ai-field select, .ai-field textarea {
+  width: 100%; background: var(--bg-alt); border: 1px solid var(--border);
+  border-radius: var(--radius); color: var(--text); font-family: var(--font-ui);
+  font-size: 13px; padding: 8px 10px; outline: none; transition: border-color var(--transition);
+}
+.ai-field input:focus, .ai-field select:focus, .ai-field textarea:focus { border-color: var(--accent); }
+.ai-field textarea { resize: vertical; min-height: 72px; line-height: 1.5; }
+.ai-stt-footer { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 20px; border-top: 1px solid var(--border); }
+.btn-primary { background: var(--accent); color: #fff; border: none; border-radius: var(--radius); padding: 7px 18px; font-size: 13px; font-weight: 600; font-family: var(--font-ui); cursor: pointer; }
+.btn-primary:hover { opacity: .88; }
+.btn-secondary { background: var(--bg-alt); color: var(--text); border: 1px solid var(--border); border-radius: var(--radius); padding: 7px 14px; font-size: 13px; font-family: var(--font-ui); cursor: pointer; }
+.btn-secondary:hover { border-color: var(--accent); }
+#ai-baseurl-row { display: none; }
+
+/* Selection popup */
+#ai-sel-popup {
+  display: none; position: fixed; z-index: 70;
+  background: var(--sidebar-bg); color: #7aa2f7;
+  border-radius: 20px; padding: 5px 14px; font-size: 12px; font-family: var(--font-ui);
+  box-shadow: 0 4px 16px rgba(0,0,0,.35); cursor: pointer; white-space: nowrap;
+  border: 1px solid rgba(122,162,247,.4); font-weight: 600; letter-spacing: .02em;
+}
+#ai-sel-popup:hover { background: #1e2040; }
 </style>
 </head>
 <body>
@@ -637,6 +740,7 @@ figcaption { font-family: var(--font-ui); font-size: 0.85rem; color: var(--text-
     <span class="tb-meta" id="tb-meta"></span>
     <button class="btn" onclick="toggleTheme()">&#9788; Theme</button>
     <button class="btn" onclick="window.print()">&#128438; Print</button>
+    <button class="btn" id="btn-ai" onclick="toggleAIPanel()" title="AI Assistant">✦ AI</button>
   </header>
 
   <main id="article">
@@ -648,6 +752,76 @@ figcaption { font-family: var(--font-ui); font-size: 0.85rem; color: var(--text-
   </main>
 </div>
 </div>
+
+<aside id="ai-panel" role="complementary" aria-label="AI Assistant">
+  <div id="ai-panel-header">
+    <span id="ai-panel-title">✦ AI Assistant</span>
+    <div style="display:flex;gap:6px;align-items:center">
+      <button class="btn" onclick="openAISettings()" title="Settings" style="padding:4px 8px;font-size:14px">⚙</button>
+      <button class="btn" onclick="clearAIChat()" title="New conversation" style="padding:4px 8px">↺</button>
+      <button class="btn" onclick="closeAIPanel()" style="padding:4px 8px">✕</button>
+    </div>
+  </div>
+  <div id="ai-context-bar" style="display:none">
+    <div id="ai-context-header">
+      <span>📌 Selected context</span>
+      <button class="btn" onclick="clearAIContext()" style="padding:2px 6px;font-size:11px">✕</button>
+    </div>
+    <div id="ai-context-text"></div>
+  </div>
+  <div id="ai-messages">
+    <div class="ai-msg ai-msg-assistant">Hello! I can help you understand this document. Select any text and click <strong>✦ Ask AI</strong> to discuss it, or ask me anything below.</div>
+  </div>
+  <div id="ai-input-area">
+    <textarea id="ai-input" placeholder="Ask about this document… (Enter to send, Shift+Enter for newline)"></textarea>
+    <div id="ai-input-row">
+      <button id="btn-ai-send" onclick="sendAIMessage()">Send ↵</button>
+    </div>
+  </div>
+</aside>
+
+<div id="ai-settings-overlay" onclick="closeAISettingsIfOutside(event)">
+  <div id="ai-settings-box">
+    <div class="ai-stt-hdr">
+      <span>AI Assistant Settings</span>
+      <button class="btn" onclick="closeAISettings()" style="background:none;color:var(--text-muted);font-size:16px;padding:2px 6px">✕</button>
+    </div>
+    <div class="ai-stt-body">
+      <div class="ai-field">
+        <label>Provider</label>
+        <select id="s-provider" onchange="onAIProviderChange()">
+          <option value="openai">OpenAI</option>
+          <option value="anthropic">Anthropic</option>
+          <option value="gemini">Google Gemini</option>
+          <option value="ilaas">ilaas.fr</option>
+          <option value="custom">Custom (OpenAI-compatible)</option>
+        </select>
+      </div>
+      <div class="ai-field" id="ai-baseurl-row">
+        <label>Base URL</label>
+        <input type="url" id="s-baseurl" placeholder="http://localhost:11434/v1">
+      </div>
+      <div class="ai-field">
+        <label>API Key</label>
+        <input type="password" id="s-apikey" placeholder="sk-… (leave blank for local endpoints)">
+      </div>
+      <div class="ai-field">
+        <label>Model</label>
+        <input type="text" id="s-model" placeholder="gpt-4o-mini">
+      </div>
+      <div class="ai-field">
+        <label>System prompt</label>
+        <textarea id="s-sysprompt" rows="4"></textarea>
+      </div>
+    </div>
+    <div class="ai-stt-footer">
+      <button class="btn-secondary" onclick="closeAISettings()">Cancel</button>
+      <button class="btn-primary" onclick="saveAISettings()">Save</button>
+    </div>
+  </div>
+</div>
+
+<div id="ai-sel-popup" onclick="addSelectionToAI()">✦ Ask AI</div>
 
 <script>
 "use strict";
@@ -719,6 +893,336 @@ function toggleSidebar() {
     }
   }, { rootMargin: "-10% 0px -80% 0px", threshold: 0 });
   headings.forEach(h => h && obs.observe(h));
+})();
+
+// ── AI Chat Panel ─────────────────────────────────────────────────────────
+(function() {
+"use strict";
+const AI_STORE = 'typst-web-ai-settings';
+const AI_DEFAULTS = {
+  provider: 'openai',
+  apiKey: '',
+  model: '',
+  baseUrl: '',
+  systemPrompt: 'You are a helpful assistant helping a student or researcher understand a mathematical or academic document. Be concise, precise, and helpful. When writing math, use LaTeX notation with $ delimiters.'
+};
+let aiCfg = { ...AI_DEFAULTS };
+let aiHistory = [];
+let aiContextText = '';
+let aiStreaming = false;
+
+function loadAICfg() {
+  try { aiCfg = { ...AI_DEFAULTS, ...JSON.parse(localStorage.getItem(AI_STORE) || '{}') }; } catch {}
+}
+function _saveAICfg() { localStorage.setItem(AI_STORE, JSON.stringify(aiCfg)); }
+
+const aiPanel = document.getElementById('ai-panel');
+
+function openAIPanel() {
+  aiPanel.classList.add('open');
+  document.getElementById('btn-ai').style.background = 'rgba(122,162,247,.2)';
+  localStorage.setItem('typst-web-ai-panel', 'open');
+  document.getElementById('ai-input').focus();
+}
+window.closeAIPanel = function() {
+  aiPanel.classList.remove('open');
+  document.getElementById('btn-ai').style.background = '';
+  localStorage.setItem('typst-web-ai-panel', 'closed');
+};
+window.toggleAIPanel = function() {
+  aiPanel.classList.contains('open') ? closeAIPanel() : openAIPanel();
+};
+
+window.clearAIContext = function() {
+  aiContextText = '';
+  document.getElementById('ai-context-bar').style.display = 'none';
+};
+function setAIContext(text) {
+  aiContextText = text;
+  document.getElementById('ai-context-text').textContent = text.length > 250 ? text.slice(0, 250) + '\u2026' : text;
+  document.getElementById('ai-context-bar').style.display = '';
+}
+
+function escHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+function renderMarkdown(text) {
+  // Extract code blocks before escaping
+  const codeBlocks = [], inlineCodes = [];
+  text = text.replace(/```([\\s\\S]*?)```/g, (_, c) => { codeBlocks.push(c.replace(/^\\n/,'')); return '\u0002CB\u0003'; });
+  text = text.replace(/`([^`\\n]+)`/g, (_, c) => { inlineCodes.push(c); return '\u0002IC\u0003'; });
+  text = escHtml(text);
+  text = text.replace(/\u0002CB\u0003/g, () => '<pre><code>' + escHtml(codeBlocks.shift()) + '</code></pre>');
+  text = text.replace(/\u0002IC\u0003/g, () => '<code>' + escHtml(inlineCodes.shift()) + '</code>');
+  text = text.replace(/\\*\\*([^*]+)\\*\\*/g, '<strong>$1</strong>');
+  text = text.replace(/\\*([^*]+)\\*/g, '<em>$1</em>');
+  text = text.replace(/\\n\\n+/g, '</p><p>');
+  text = text.replace(/\\n/g, '<br>');
+  return text;
+}
+
+const aiMsgs = document.getElementById('ai-messages');
+function addMsg(role, content) {
+  const d = document.createElement('div');
+  d.className = 'ai-msg ai-msg-' + role;
+  if (role === 'assistant') d.innerHTML = '<p>' + renderMarkdown(content) + '</p>';
+  else d.textContent = content;
+  aiMsgs.appendChild(d);
+  aiMsgs.scrollTop = aiMsgs.scrollHeight;
+  return d;
+}
+function addErrMsg(txt) {
+  const d = document.createElement('div');
+  d.className = 'ai-msg ai-msg-error';
+  d.textContent = '\u26a0 ' + txt;
+  aiMsgs.appendChild(d);
+  aiMsgs.scrollTop = aiMsgs.scrollHeight;
+}
+window.clearAIChat = function() {
+  aiHistory = [];
+  aiMsgs.innerHTML = '<div class="ai-msg ai-msg-assistant">Chat cleared. What would you like to discuss?</div>';
+};
+
+async function callAI(messages, onChunk) {
+  const { provider, apiKey, model, baseUrl } = aiCfg;
+  const useProxy = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+
+  // Route through local proxy (avoids CORS) when served via typst-web --serve
+  async function doFetch(url, headers, bodyObj) {
+    if (useProxy) {
+      return fetch('/ai-proxy', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ url, headers, body: bodyObj }),
+      });
+    }
+    return fetch(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(bodyObj),
+    });
+  }
+
+  // ── Anthropic ────────────────────────────────────────────────────────────
+  if (provider === 'anthropic') {
+    const res = await doFetch('https://api.anthropic.com/v1/messages', {
+      'content-type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-allow-browser': 'true',
+    }, {
+      model: model || 'claude-sonnet-4-6',
+      max_tokens: 2048, stream: true,
+      system: aiCfg.systemPrompt,
+      messages: messages.filter(m => m.role !== 'system'),
+    });
+    if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.error?.message || 'HTTP ' + res.status); }
+    const reader = res.body.getReader(); const dec = new TextDecoder(); let buf = '';
+    while (true) {
+      const { done, value } = await reader.read(); if (done) break;
+      buf += dec.decode(value, { stream: true });
+      const lines = buf.split('\\n'); buf = lines.pop();
+      for (const ln of lines) {
+        if (!ln.startsWith('data: ')) continue;
+        try { const d = JSON.parse(ln.slice(6)); if (d.type === 'content_block_delta' && d.delta?.text) onChunk(d.delta.text); } catch {}
+      }
+    }
+
+  // ── Google Gemini ────────────────────────────────────────────────────────
+  } else if (provider === 'gemini') {
+    const m = model || 'gemini-2.0-flash';
+    const url = 'https://generativelanguage.googleapis.com/v1beta/models/'
+              + m + ':streamGenerateContent?alt=sse&key=' + apiKey;
+    // Convert history: Gemini uses role "model" instead of "assistant"
+    const contents = messages.map(msg => ({
+      role: msg.role === 'assistant' ? 'model' : 'user',
+      parts: [{ text: msg.content }],
+    }));
+    const res = await doFetch(url, { 'content-type': 'application/json' }, {
+      contents,
+      systemInstruction: { parts: [{ text: aiCfg.systemPrompt }] },
+      generationConfig: { maxOutputTokens: 2048 },
+    });
+    if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.error?.message || 'HTTP ' + res.status); }
+    const reader = res.body.getReader(); const dec = new TextDecoder(); let buf = '';
+    while (true) {
+      const { done, value } = await reader.read(); if (done) break;
+      buf += dec.decode(value, { stream: true });
+      const lines = buf.split('\\n'); buf = lines.pop();
+      for (const ln of lines) {
+        if (!ln.startsWith('data: ')) continue;
+        try {
+          const d = JSON.parse(ln.slice(6));
+          const text = d.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (text) onChunk(text);
+        } catch {}
+      }
+    }
+
+  // ── OpenAI-compatible (OpenAI, ilaas, custom) ────────────────────────────
+  } else {
+    const base = provider === 'ilaas'   ? 'https://llm.ilaas.fr'
+               : provider === 'custom'  ? (baseUrl || '').replace(/\\/$/, '')
+               :                          'https://api.openai.com';
+    const headers = { 'content-type': 'application/json' };
+    if (apiKey) headers['authorization'] = 'Bearer ' + apiKey;
+    const res = await doFetch(base + '/v1/chat/completions', headers, {
+      model: model || (provider === 'ilaas' ? '' : 'gpt-4o-mini'),
+      stream: true,
+      messages: [{ role: 'system', content: aiCfg.systemPrompt }, ...messages],
+    });
+    if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.error?.message || 'HTTP ' + res.status); }
+    const reader = res.body.getReader(); const dec = new TextDecoder(); let buf = '';
+    while (true) {
+      const { done, value } = await reader.read(); if (done) break;
+      buf += dec.decode(value, { stream: true });
+      const lines = buf.split('\\n'); buf = lines.pop();
+      for (const ln of lines) {
+        if (!ln.startsWith('data: ')) continue;
+        const raw = ln.slice(6).trim(); if (raw === '[DONE]') return;
+        try { const chunk = JSON.parse(raw).choices?.[0]?.delta?.content; if (chunk) onChunk(chunk); } catch {}
+      }
+    }
+  }
+}
+
+window.sendAIMessage = async function() {
+  if (aiStreaming) return;
+  const input = document.getElementById('ai-input');
+  const sendBtn = document.getElementById('btn-ai-send');
+  const text = input.value.trim();
+  if (!text) return;
+  const noKeyOk = aiCfg.provider === 'custom';
+  if (!aiCfg.apiKey && !noKeyOk) { openAISettings(); return; }
+
+  let userContent = text;
+  if (aiContextText) {
+    userContent = 'Regarding the following passage from the document:\\n\\n> ' + aiContextText + '\\n\\n' + text;
+    clearAIContext();
+  }
+  input.value = ''; input.style.height = 'auto';
+  addMsg('user', userContent);
+  aiHistory.push({ role: 'user', content: userContent });
+
+  aiStreaming = true; sendBtn.disabled = true; sendBtn.textContent = '\u2026';
+  const msgDiv = addMsg('assistant', '');
+  let acc = '';
+  try {
+    await callAI(aiHistory, chunk => {
+      acc += chunk;
+      msgDiv.innerHTML = '<p>' + renderMarkdown(acc) + '</p>';
+      aiMsgs.scrollTop = aiMsgs.scrollHeight;
+    });
+    if (!acc) throw new Error('Empty response');
+    aiHistory.push({ role: 'assistant', content: acc });
+  } catch(e) {
+    msgDiv.remove();
+    addErrMsg(e.message || 'Request failed');
+  } finally {
+    aiStreaming = false; sendBtn.disabled = false; sendBtn.textContent = 'Send \u21b5';
+  }
+};
+
+document.getElementById('ai-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendAIMessage(); }
+});
+document.getElementById('ai-input').addEventListener('input', function() {
+  this.style.height = 'auto';
+  this.style.height = Math.min(this.scrollHeight, 120) + 'px';
+});
+
+// Settings
+window.openAISettings = function() {
+  document.getElementById('s-provider').value = aiCfg.provider;
+  document.getElementById('s-apikey').value = aiCfg.apiKey;
+  document.getElementById('s-model').value = aiCfg.model;
+  document.getElementById('s-baseurl').value = aiCfg.baseUrl;
+  document.getElementById('s-sysprompt').value = aiCfg.systemPrompt;
+  onAIProviderChange();
+  document.getElementById('ai-settings-overlay').classList.add('open');
+};
+window.closeAISettings = function() { document.getElementById('ai-settings-overlay').classList.remove('open'); };
+window.closeAISettingsIfOutside = function(e) { if (e.target.id === 'ai-settings-overlay') closeAISettings(); };
+window.onAIProviderChange = function() {
+  const p = document.getElementById('s-provider').value;
+  document.getElementById('ai-baseurl-row').style.display = p === 'custom' ? '' : 'none';
+  const urlEl = document.getElementById('s-baseurl');
+  if (p === 'ilaas') urlEl.value = 'https://llm.ilaas.fr/v1';
+  else if (p !== 'custom') urlEl.value = '';
+  const m = document.getElementById('s-model');
+  const placeholders = { anthropic: 'claude-sonnet-4-6', openai: 'gpt-4o-mini', gemini: 'gemini-2.0-flash', ilaas: '(auto — first available model)' };
+  if (!m.value) m.placeholder = placeholders[p] || 'model name';
+};
+window.saveAISettings = function() {
+  aiCfg.provider = document.getElementById('s-provider').value;
+  aiCfg.apiKey = document.getElementById('s-apikey').value.trim();
+  aiCfg.model = document.getElementById('s-model').value.trim();
+  aiCfg.baseUrl = document.getElementById('s-baseurl').value.trim();
+  aiCfg.systemPrompt = document.getElementById('s-sysprompt').value.trim() || AI_DEFAULTS.systemPrompt;
+  _saveAICfg(); closeAISettings();
+};
+
+// Text selection popup
+const selPopup = document.getElementById('ai-sel-popup');
+let selTid = null;
+document.addEventListener('selectionchange', () => {
+  clearTimeout(selTid);
+  selTid = setTimeout(() => {
+    const sel = window.getSelection();
+    const text = sel ? sel.toString().trim() : '';
+    if (text.length < 10) { selPopup.style.display = 'none'; return; }
+    try {
+      const range = sel.getRangeAt(0);
+      const article = document.getElementById('article');
+      if (!article || !article.contains(range.commonAncestorContainer)) { selPopup.style.display = 'none'; return; }
+      const rect = range.getBoundingClientRect();
+      selPopup.style.display = 'block';
+      const pw = selPopup.offsetWidth || 90;
+      const left = Math.max(8, Math.min(window.innerWidth - pw - 8, rect.left + rect.width / 2 - pw / 2));
+      selPopup.style.left = left + 'px';
+      selPopup.style.top = Math.max(8, rect.top - 38) + 'px';
+    } catch { selPopup.style.display = 'none'; }
+  }, 220);
+});
+document.addEventListener('mousedown', e => { if (e.target !== selPopup) selPopup.style.display = 'none'; });
+window.addSelectionToAI = async function() {
+  const sel = window.getSelection();
+  const text = sel ? sel.toString().trim() : '';
+  selPopup.style.display = 'none';
+  if (!text) return;
+  try { sel.removeAllRanges(); } catch {}
+  openAIPanel();
+  if (!aiCfg.apiKey && aiCfg.provider !== 'custom') { setAIContext(text); return; }
+
+  // Build message: show the selection visibly then ask about it
+  const userContent = 'I selected the following passage from the document:\\n\\n> ' + text + '\\n\\nCan you explain this?';
+  addMsg('user', userContent);
+  aiHistory.push({ role: 'user', content: userContent });
+
+  if (aiStreaming) return;
+  aiStreaming = true;
+  const sendBtn = document.getElementById('btn-ai-send');
+  sendBtn.disabled = true; sendBtn.textContent = '\u2026';
+  const msgDiv = addMsg('assistant', '');
+  let acc = '';
+  try {
+    await callAI(aiHistory, chunk => {
+      acc += chunk;
+      msgDiv.innerHTML = '<p>' + renderMarkdown(acc) + '</p>';
+      aiMsgs.scrollTop = aiMsgs.scrollHeight;
+    });
+    if (!acc) throw new Error('Empty response');
+    aiHistory.push({ role: 'assistant', content: acc });
+  } catch(e) {
+    msgDiv.remove();
+    addErrMsg(e.message || 'Request failed');
+  } finally {
+    aiStreaming = false; sendBtn.disabled = false; sendBtn.textContent = 'Send \u21b5';
+  }
+};
+
+loadAICfg();
+if (localStorage.getItem('typst-web-ai-panel') === 'open') openAIPanel();
 })();
 </script>
 </body>

@@ -228,11 +228,15 @@ def main(argv: list[str] | None = None) -> int:
         prog="typst-web",
         description="Convert a Typst document into a MyST-style website.",
     )
-    ap.add_argument("input", metavar="INPUT.typ", nargs="?")
+    ap.add_argument("input", metavar="INPUT.typ/HTML", nargs="?")
     ap.add_argument("-o", "--output", metavar="OUTPUT.html")
     ap.add_argument("--root", metavar="DIR")
     ap.add_argument("--font-path", metavar="DIR", action="append", dest="font_paths")
     ap.add_argument("--version", action="store_true")
+    ap.add_argument("--serve", action="store_true",
+                    help="Serve OUTPUT.html on localhost with an AI proxy (avoids CORS)")
+    ap.add_argument("--port", type=int, default=7890, metavar="PORT",
+                    help="Port for --serve (default: 7890)")
     args = ap.parse_args(argv)
 
     if args.version:
@@ -242,6 +246,12 @@ def main(argv: list[str] | None = None) -> int:
             print(get_typst_version())
         except RuntimeError as e:
             print(f"  warning: {e}")
+        return 0
+
+    # `typst-web --serve output.html` — serve an existing HTML without recompiling
+    if args.serve and args.input and args.input.endswith(".html"):
+        from .server import serve
+        serve(Path(args.input), port=args.port)
         return 0
 
     if not args.input:
@@ -359,6 +369,11 @@ def main(argv: list[str] | None = None) -> int:
     elapsed = time.perf_counter() - t0
     size_kb = out_path.stat().st_size / 1024
     print(f"\nDone in {elapsed:.1f}s  →  {out_path}  ({size_kb:.0f} KB)")
+
+    if args.serve:
+        from .server import serve
+        serve(out_path, port=args.port)
+
     return 0
 
 
