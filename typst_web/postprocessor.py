@@ -93,6 +93,63 @@ def _extract_headings(html: str) -> list[dict]:
     return headings
 
 
+# ── Theorem anchor injection ─────────────────────────────────────────────────
+
+def _inject_thm_anchors(html: str) -> str:
+    """
+    The dobbikov template's #show figure rule strips Typst's label-generated ids.
+    Recover them by matching each <a class="thm-ref" href="#label">Kind N</a>
+    link against the theorem heading that starts with "Kind N", then prepending
+    an id-bearing anchor span just before the matching .typst-thm div.
+
+    We target the inner <div class="typst-thm …"> rather than the enclosing
+    <figure> because a lazy <figure>…</figure> regex breaks when theorem content
+    itself contains nested <figure> elements (e.g. cetz figures inside theorems).
+    """
+    # Collect all thm-ref links: {label: "Kind N"} (e.g. {"pvaleur": "Définition 36"})
+    targets: dict[str, str] = {}
+    for m in re.finditer(r'<a[^>]*\bhref="#([^"]+)"[^>]*\bclass="thm-ref"[^>]*>(.*?)</a>',
+                         html, re.DOTALL):
+        label, text = m.group(1), re.sub(r'<[^>]+>', '', m.group(2)).strip()
+        targets[label] = text  # "Définition 36"
+
+    if not targets:
+        return html
+
+    # Build a map: "Kind N" → label (invert, deduplicate by first occurrence)
+    text_to_label: dict[str, str] = {}
+    for label, text in targets.items():
+        if text not in text_to_label:
+            text_to_label[text] = label
+
+    # For each theorem div opening tag + thm-head, find the matching label and
+    # inject id="label" directly on the div opening tag.
+    def patch_div(m: re.Match) -> str:
+        div_open = m.group(1)   # e.g. <div class="typst-thm typst-defn">
+        thm_head = m.group(2)   # content of <span class="thm-head"><strong>…</strong>
+        # Already labelled — leave it
+        if re.search(r'\bid=', div_open):
+            return m.group(0)
+        head_raw = re.sub(r'<[^>]+>', '', thm_head).strip()
+        # Strip trailing period or "(name)" suffix
+        head_base = re.sub(r'\s*\(.*?\)\.?$|\.?$', '', head_raw).strip()
+        label = text_to_label.get(head_base)
+        if not label:
+            return m.group(0)
+        # Insert id into the div opening tag
+        new_div_open = div_open.replace('<div ', f'<div id="{label}" ', 1)
+        return m.group(0).replace(div_open, new_div_open, 1)
+
+    return re.sub(
+        r'(<div[^>]*\bclass="typst-thm\b[^"]*"[^>]*>)'
+        r'.*?'
+        r'<span[^>]*\bclass="thm-head"[^>]*>.*?<strong>(.*?)</strong>',
+        patch_div,
+        html,
+        flags=re.DOTALL,
+    )
+
+
 # ── Figure SVG injection ──────────────────────────────────────────────────────
 
 def _inject_figures(html: str, figure_svgs: dict[str, str]) -> str:
@@ -233,6 +290,7 @@ def build_web_page(
     content = _inject_math_svgs(content, math_svgs, expressions)
     if canvas_svgs:
         content = _inject_canvas_svgs(content, canvas_svgs)
+    content = _inject_thm_anchors(content)
 
     headings = _extract_headings(content)
     toc_html = _build_toc_html(headings)
@@ -477,8 +535,8 @@ figcaption { font-family: var(--font-ui); font-size: 0.85rem; color: var(--text-
 }
 .math-numbered svg { display: inline-block; max-width: 100%; vertical-align: middle; }
 .eq-number { color: var(--text-muted); font-size: 0.9em; white-space: nowrap; }
-.eq-ref { color: var(--accent); text-decoration: none; }
-.eq-ref:hover { text-decoration: underline; }
+.eq-ref, .thm-ref { color: var(--accent); text-decoration: none; }
+.eq-ref:hover, .thm-ref:hover { text-decoration: underline; }
 
 /* ── Figure and canvas SVG ───────────────────────────────────────────── */
 .typst-figure-svg { display: block; max-width: 100%; height: auto; margin: 0 auto; }
