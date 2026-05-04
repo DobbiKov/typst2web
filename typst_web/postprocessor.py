@@ -1165,32 +1165,33 @@ window.saveAISettings = function() {
 // Text selection popup
 const selPopup = document.getElementById('ai-sel-popup');
 let selTid = null;
+let pendingSelText = '';  // saved before mousedown clears the selection
 document.addEventListener('selectionchange', () => {
   clearTimeout(selTid);
   selTid = setTimeout(() => {
     const sel = window.getSelection();
     const text = sel ? sel.toString().trim() : '';
-    if (text.length < 10) { selPopup.style.display = 'none'; return; }
+    if (text.length < 10) { selPopup.style.display = 'none'; pendingSelText = ''; return; }
+    pendingSelText = text;
     try {
       const range = sel.getRangeAt(0);
       const article = document.getElementById('article');
-      if (!article || !article.contains(range.commonAncestorContainer)) { selPopup.style.display = 'none'; return; }
+      if (!article || !article.contains(range.commonAncestorContainer)) { selPopup.style.display = 'none'; pendingSelText = ''; return; }
       const rect = range.getBoundingClientRect();
       selPopup.style.display = 'block';
       const pw = selPopup.offsetWidth || 90;
       const left = Math.max(8, Math.min(window.innerWidth - pw - 8, rect.left + rect.width / 2 - pw / 2));
       selPopup.style.left = left + 'px';
       selPopup.style.top = Math.max(8, rect.top - 38) + 'px';
-    } catch { selPopup.style.display = 'none'; }
+    } catch { selPopup.style.display = 'none'; pendingSelText = ''; }
   }, 220);
 });
-document.addEventListener('mousedown', e => { if (e.target !== selPopup) selPopup.style.display = 'none'; });
+document.addEventListener('mousedown', e => { if (e.target !== selPopup) { selPopup.style.display = 'none'; pendingSelText = ''; } });
 window.addSelectionToAI = async function() {
-  const sel = window.getSelection();
-  const text = sel ? sel.toString().trim() : '';
+  const text = pendingSelText;
+  pendingSelText = '';
   selPopup.style.display = 'none';
   if (!text) return;
-  try { sel.removeAllRanges(); } catch {}
   openAIPanel();
   if (!aiCfg.apiKey && aiCfg.provider !== 'custom') { setAIContext(text); return; }
 
