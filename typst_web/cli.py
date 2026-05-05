@@ -14,6 +14,7 @@ from .math_renderer import compile_math_to_svgs
 from .parser import parse
 from .postprocessor import build_web_page
 from .preprocessor import preprocess_file
+from .settings import resolve_settings
 
 
 _IMPORT_OR_LET_RE = re.compile(r"^(#import\b|#let\b)")
@@ -232,6 +233,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("-o", "--output", metavar="OUTPUT.html")
     ap.add_argument("--root", metavar="DIR")
     ap.add_argument("--font-path", metavar="DIR", action="append", dest="font_paths")
+    ap.add_argument("--title",    metavar="TEXT", default="")
+    ap.add_argument("--subtitle", metavar="TEXT", default="")
+    ap.add_argument("--author",   metavar="NAME", action="append", dest="authors")
+    ap.add_argument("--date",     metavar="TEXT", default="")
     ap.add_argument("--version", action="store_true")
     args = ap.parse_args(argv)
 
@@ -343,15 +348,27 @@ def main(argv: list[str] | None = None) -> int:
     structure = parse(typ_path)
     meta = structure.meta
 
+    settings = resolve_settings(
+        typ_path,
+        cli_title=args.title,
+        cli_subtitle=args.subtitle,
+        cli_authors=args.authors or [],
+        cli_date=args.date,
+        meta_title=meta.title,
+        meta_authors=meta.authors,
+        meta_date=meta.date,
+    )
+
     html = build_web_page(
         typst_html,
         figure_svgs,
         math_svgs,
         pp.expressions,
         canvas_svgs=canvas_svgs,
-        title=meta.title or typ_path.stem,
-        authors=meta.authors,
-        date=meta.date,
+        title=settings.title or typ_path.stem,
+        subtitle=settings.subtitle,
+        authors=settings.authors,
+        date=settings.date,
         source_name=typ_path.stem,
     )
 

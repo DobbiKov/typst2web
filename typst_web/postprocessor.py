@@ -272,12 +272,23 @@ def build_web_page(
     *,
     canvas_svgs: list[str] | None = None,
     title: str = "",
-    authors: list[str] | None = None,
+    subtitle: str = "",
+    authors=None,  # list[Author] | None
     date: str = "",
     source_name: str = "document",
 ) -> str:
-    authors = authors or []
-    authors_str = ", ".join(authors)
+    from .settings import Author
+    authors: list[Author] = authors or []
+
+    def _author_html(a: Author) -> str:
+        if a.website:
+            return f'<a href="{a.website}" class="author-link" target="_blank" rel="noopener">{a.name}</a>'
+        if a.email:
+            return f'<a href="mailto:{a.email}" class="author-link">{a.name}</a>'
+        return a.name
+
+    authors_str = ", ".join(a.name for a in authors)
+    authors_html_parts = ", ".join(_author_html(a) for a in authors)
 
     body_m = re.search(r"<body>([\s\S]*)</body>", typst_html, re.IGNORECASE)
     content = body_m.group(1).strip() if body_m else typst_html
@@ -296,19 +307,22 @@ def build_web_page(
     toc_html = _build_toc_html(headings)
 
     doc_title = title or source_name
-    authors_html = f'<span class="doc-authors">{authors_str}</span>' if authors_str else ""
-    date_html    = f'<span class="doc-date">{date}</span>' if date else ""
+    authors_html  = f'<span class="doc-authors">{authors_html_parts}</span>' if authors_html_parts else ""
+    date_html     = f'<span class="doc-date">{date}</span>' if date else ""
+    subtitle_html = f'<div class="doc-subtitle">{subtitle}</div>' if subtitle else ""
+    sidebar_subtitle_html = f'<div class="sidebar-doc-subtitle">{subtitle}</div>' if subtitle else ""
 
     return (
         _TEMPLATE
-        .replace("{{TITLE}}",       doc_title)
-        .replace("{{AUTHORS_HTML}}", authors_html)
-        .replace("{{DATE_HTML}}",    date_html)
-        .replace("{{TOC_HTML}}",     toc_html)
-        .replace("{{CONTENT}}",      content)
-        .replace("{{SOURCE_NAME}}",  source_name)
-        .replace('"{{AUTHORS_STR}}"', f'"{authors_str}"')
-        .replace('"{{DATE_STR}}"',    f'"{date}"')
+        .replace("{{TITLE}}",                doc_title)
+        .replace("{{SUBTITLE_HTML}}",         subtitle_html)
+        .replace("{{SIDEBAR_SUBTITLE_HTML}}", sidebar_subtitle_html)
+        .replace("{{AUTHORS_HTML}}",          authors_html)
+        .replace("{{DATE_HTML}}",             date_html)
+        .replace("{{TOC_HTML}}",              toc_html)
+        .replace("{{CONTENT}}",               content)
+        .replace('"{{AUTHORS_STR}}"',         f'"{authors_str}"')
+        .replace('"{{DATE_STR}}"',            f'"{date}"')
     )
 
 
@@ -385,13 +399,13 @@ body {
   border-bottom: 1px solid rgba(255,255,255,.08);
   flex-shrink: 0;
 }
-.sidebar-title {
-  font-family: var(--font-ui); font-size: 13px; font-weight: 600;
-  color: #7aa2f7; text-transform: uppercase; letter-spacing: .06em;
-}
 .sidebar-doc-title {
   font-size: 14px; font-weight: 500; color: var(--sidebar-txt);
   margin-top: 6px; line-height: 1.4;
+}
+.sidebar-doc-subtitle {
+  font-size: 12px; color: var(--sidebar-txt); opacity: .7;
+  margin-top: 3px; line-height: 1.35;
 }
 .toc-section-label {
   font-family: var(--font-ui); font-size: 10px; font-weight: 700;
@@ -448,8 +462,11 @@ body {
 #article { max-width: var(--content-max); margin: 0 auto; padding: 48px 40px 96px; flex: 1; }
 
 .doc-header { margin-bottom: 40px; padding-bottom: 24px; border-bottom: 2px solid var(--border); }
-.doc-header h1 { font-size: 2.2rem; font-weight: 700; line-height: 1.2; margin-bottom: 12px; }
+.doc-header h1 { font-size: 2.2rem; font-weight: 700; line-height: 1.2; margin-bottom: 8px; }
+.doc-subtitle { font-size: 1.1rem; color: var(--text-muted); margin-bottom: 12px; }
 .doc-meta { display: flex; gap: 16px; font-family: var(--font-ui); font-size: 13px; color: var(--text-muted); flex-wrap: wrap; }
+.author-link { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+.author-link:hover { color: var(--accent); }
 
 /* ── Typography ──────────────────────────────────────────────────────── */
 h1 { font-size: 1.9rem; font-weight: 700; margin: 2rem 0 0.8rem; line-height: 1.25; }
@@ -621,8 +638,8 @@ figcaption { font-family: var(--font-ui); font-size: 0.85rem; color: var(--text-
 
 <nav id="sidebar" aria-label="Table of contents">
   <div class="sidebar-header">
-    <div class="sidebar-title">{{SOURCE_NAME}}</div>
     <div class="sidebar-doc-title">{{TITLE}}</div>
+    {{SIDEBAR_SUBTITLE_HTML}}
   </div>
   <div class="toc-section-label">Contents</div>
   <div id="toc-scroll">
@@ -642,6 +659,7 @@ figcaption { font-family: var(--font-ui); font-size: 0.85rem; color: var(--text-
   <main id="article">
     <div class="doc-header">
       <h1>{{TITLE}}</h1>
+      {{SUBTITLE_HTML}}
       <div class="doc-meta">{{AUTHORS_HTML}}{{DATE_HTML}}</div>
     </div>
     {{CONTENT}}
