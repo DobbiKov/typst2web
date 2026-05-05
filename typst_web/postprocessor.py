@@ -559,6 +559,7 @@ figcaption { font-family: var(--font-ui); font-size: 0.85rem; color: var(--text-
 .typst-figure-svg { display: block; max-width: 100%; height: auto; margin: 0 auto; }
 .typst-canvas-svg { display: block; max-width: 100%; height: auto; margin: 0 auto; }
 .canvas-figure { text-align: center; margin: 1.5rem 0; }
+figure img, #article img { display: block; max-width: 100%; height: auto; margin: 0 auto; }
 
 /* ── Theorem environments ─────────────────────────────────────────────── */
 .typst-thm {
