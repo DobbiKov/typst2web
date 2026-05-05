@@ -275,6 +275,7 @@ def build_web_page(
     authors: list[str] | None = None,
     date: str = "",
     source_name: str = "document",
+    typ_sources: dict[str, str] | None = None,
 ) -> str:
     authors = authors or []
     authors_str = ", ".join(authors)
@@ -299,6 +300,9 @@ def build_web_page(
     authors_html = f'<span class="doc-authors">{authors_str}</span>' if authors_str else ""
     date_html    = f'<span class="doc-date">{date}</span>' if date else ""
 
+    import json as _json
+    sources_json = _json.dumps(typ_sources or {}, ensure_ascii=False)
+
     return (
         _TEMPLATE
         .replace("{{TITLE}}",       doc_title)
@@ -309,6 +313,7 @@ def build_web_page(
         .replace("{{SOURCE_NAME}}",  source_name)
         .replace('"{{AUTHORS_STR}}"', f'"{authors_str}"')
         .replace('"{{DATE_STR}}"',    f'"{date}"')
+        .replace("{{TYPST_SOURCES_JSON}}", sources_json)
     )
 
 
@@ -823,6 +828,8 @@ figcaption { font-family: var(--font-ui); font-size: 0.85rem; color: var(--text-
 
 <div id="ai-sel-popup" onclick="addSelectionToAI()">✦ Ask AI</div>
 
+<script id="typst-sources" type="application/json">{{TYPST_SOURCES_JSON}}</script>
+
 <script>
 "use strict";
 function toggleTheme() {
@@ -1097,7 +1104,7 @@ window.sendAIMessage = async function() {
 
   let userContent = text;
   if (aiContextText) {
-    userContent = 'Regarding the following passage from the document:\\n\\n> ' + aiContextText + '\\n\\n' + text;
+    userContent = aiContextText + '\\n\\n' + text;
     clearAIContext();
   }
   input.value = ''; input.style.height = 'auto';
@@ -1162,6 +1169,49 @@ window.saveAISettings = function() {
   _saveAICfg(); closeAISettings();
 };
 
+// ── Typst source search ───────────────────────────────────────────────────
+const _typstSources = JSON.parse(document.getElementById('typst-sources').textContent || '{}');
+
+function _stripTypstMarkup(src) {
+  return src
+    .replace(/\/\/[^\\n]*/g, ' ')           // line comments
+    .replace(/\\$\\$[\\s\\S]*?\\$\\$/g, ' ')  // display math blocks
+    .replace(/\\$[^\\$\\n]*\\$/g, ' ')        // inline math
+    .replace(/#\\w+/g, ' ')                 // #keywords
+    .replace(/[\\[\\]{}*_`<>]/g, ' ')        // markup punctuation
+    .replace(/\\s+/g, ' ')
+    .toLowerCase().trim();
+}
+
+function findTypstSnippet(selText) {
+  // Use words of >=3 chars from the rendered selection
+  const words = selText.toLowerCase().match(/[a-z\\u00c0-\\u024f]{3,}/g) || [];
+  if (words.length < 2) return null;
+  // Deduplicate
+  const wordSet = [...new Set(words)];
+
+  let bestFile = null, bestLine = -1, bestScore = 0;
+  for (const [fname, src] of Object.entries(_typstSources)) {
+    const lines = src.split('\\n');
+    // Sliding window of 10 lines; score against markup-stripped text
+    for (let i = 0; i < lines.length; i++) {
+      const raw = lines.slice(Math.max(0, i - 2), i + 8).join(' ');
+      const cleaned = _stripTypstMarkup(raw);
+      let score = 0;
+      for (const w of wordSet) if (cleaned.includes(w)) score++;
+      if (score > bestScore) { bestScore = score; bestFile = fname; bestLine = i; }
+    }
+  }
+
+  // Require >=40% of unique words matched
+  if (!bestFile || bestScore < Math.max(2, wordSet.length * 0.4)) return null;
+
+  const lines = _typstSources[bestFile].split('\\n');
+  const start = Math.max(0, bestLine - 2);
+  const end = Math.min(lines.length, bestLine + 15);
+  return { file: bestFile, line: bestLine + 1, snippet: lines.slice(start, end).join('\\n') };
+}
+
 // Text selection popup
 const selPopup = document.getElementById('ai-sel-popup');
 let selTid = null;
@@ -1193,33 +1243,25 @@ window.addSelectionToAI = async function() {
   selPopup.style.display = 'none';
   if (!text) return;
   openAIPanel();
-  if (!aiCfg.apiKey && aiCfg.provider !== 'custom') { setAIContext(text); return; }
 
-  // Build message: show the selection visibly then ask about it
-  const userContent = 'I selected the following passage from the document:\\n\\n> ' + text + '\\n\\nCan you explain this?';
-  addMsg('user', userContent);
-  aiHistory.push({ role: 'user', content: userContent });
-
-  if (aiStreaming) return;
-  aiStreaming = true;
-  const sendBtn = document.getElementById('btn-ai-send');
-  sendBtn.disabled = true; sendBtn.textContent = '\u2026';
-  const msgDiv = addMsg('assistant', '');
-  let acc = '';
-  try {
-    await callAI(aiHistory, chunk => {
-      acc += chunk;
-      msgDiv.innerHTML = '<p>' + renderMarkdown(acc) + '</p>';
-      aiMsgs.scrollTop = aiMsgs.scrollHeight;
-    });
-    if (!acc) throw new Error('Empty response');
-    aiHistory.push({ role: 'assistant', content: acc });
-  } catch(e) {
-    msgDiv.remove();
-    addErrMsg(e.message || 'Request failed');
-  } finally {
-    aiStreaming = false; sendBtn.disabled = false; sendBtn.textContent = 'Send \u21b5';
+  // Try to find the corresponding Typst source snippet
+  const typstMatch = findTypstSnippet(text);
+  let context;
+  if (typstMatch) {
+    context = '> ' + text
+      + '\\n\\n*Source: ' + typstMatch.file + ' line ~' + typstMatch.line + '*\\n```typst\\n' + typstMatch.snippet + '\\n```';
+  } else {
+    context = '> ' + text;
   }
+
+  // Store context and show it in the context bar; user types their question and sends manually
+  aiContextText = context;
+  document.getElementById('ai-context-text').textContent = text.length > 250 ? text.slice(0, 250) + '\\u2026' : text;
+  document.getElementById('ai-context-bar').style.display = '';
+
+  // Focus input so user can immediately type their question
+  const input = document.getElementById('ai-input');
+  input.focus();
 };
 
 loadAICfg();

@@ -353,6 +353,14 @@ def main(argv: list[str] | None = None) -> int:
     structure = parse(typ_path)
     meta = structure.meta
 
+    # Collect original (non-preprocessed) .typ sources for AI source search
+    typ_sources: dict[str, str] = {typ_path.name: typ_path.read_text(encoding="utf-8")}
+    for orig_path in pp.included:
+        try:
+            typ_sources[orig_path.name] = orig_path.read_text(encoding="utf-8")
+        except OSError:
+            pass
+
     html = build_web_page(
         typst_html,
         figure_svgs,
@@ -363,6 +371,7 @@ def main(argv: list[str] | None = None) -> int:
         authors=meta.authors,
         date=meta.date,
         source_name=typ_path.stem,
+        typ_sources=typ_sources,
     )
 
     out_path.write_text(html, encoding="utf-8")
