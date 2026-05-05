@@ -52,6 +52,33 @@ cli.py::main()
 `defn thm lem prop cor rmk ex proof soln claim notation conj insight exer exerstar prob ques fact rmnd todo`
 Languages: `en`, `fr`, `ua` (detected from `language: "XX"` in the main `.typ` file).
 
+## Settings system (planned)
+
+Document metadata (title, subtitle, authors) is resolved with this priority chain:
+
+**CLI flags > `typst-web.toml` > parsed from `.typ` source**
+
+### `typst-web.toml` (auto-discovered beside the input `.typ` file)
+```toml
+[document]
+title    = "My Custom Title"
+subtitle = "Lecture Notes, Spring 2026"
+authors  = ["Alice", "Bob"]
+```
+
+### CLI flags (one-off overrides)
+```
+--title "..."  --subtitle "..."  --author "Alice" --author "Bob"
+```
+
+### Fallback: parsed from `.typ`
+`parser.py` already reads `#set document(title:, author:)` and the first `= Heading` as a title fallback.
+
+### Implementation notes
+- Assemble a `Settings` dataclass in `cli.py::main()` before calling `build_web_page()`.
+- `postprocessor.py` / `_TEMPLATE` already has `{{TITLE}}` and `{{AUTHORS_HTML}}`; add `{{SUBTITLE}}` rendered below the title in sidebar and topbar.
+- The settings file is optional; if absent, behaviour is unchanged.
+
 ## Typical test command
 
 ```
