@@ -333,7 +333,12 @@ def main(argv: list[str] | None = None) -> int:
         )
         print(f"      {sum(1 for s in math_svgs if s)} math SVGs rendered.", flush=True)
 
-    figure_svgs = compile_figures_to_svg(typ_path, root=root, font_paths=font_paths)
+    figure_svgs = compile_figures_to_svg(
+        typ_path,
+        extra_paths=list(pp.included.keys()),
+        root=root,
+        font_paths=font_paths,
+    )
     if figure_svgs:
         print(f"      {len(figure_svgs)} figure(s) compiled.", flush=True)
 

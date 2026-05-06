@@ -237,7 +237,7 @@ def preprocess(source: str) -> PreprocessResult:
             # canvas({...}) produces no output in Typst HTML export.
             # Replace the whole call with a placeholder div so we can inject
             # an SVG later.
-            if ident == "canvas" and in_markup():
+            if (ident == "canvas" or ident.endswith(".canvas")) and in_markup():
                 # skip whitespace between identifier and (
                 k = j
                 while k < n and source[k] in " \t\n":
@@ -363,7 +363,7 @@ def preprocess(source: str) -> PreprocessResult:
 
 # ── Recursive entry point ─────────────────────────────────────────────────────
 
-_INCLUDE_RE = re.compile(r'#include\s+"([^"]+)"')
+_INCLUDE_RE = re.compile(r'(#?)include\s+"([^"]+)"')
 
 
 def preprocess_file(
@@ -427,7 +427,8 @@ def _preprocess_recursive(
     # Now recurse into #include'd files found in the original source
     # and rewrite include paths to point at the temp preprocessed versions
     def _patch_include(m: re.Match) -> str:
-        rel = m.group(1)
+        prefix = m.group(1)  # "#" or ""
+        rel = m.group(2)
         child_path = (path.parent / rel).resolve()
         _preprocess_recursive(
             child_path, expressions, canvases, included, seen,
@@ -438,7 +439,7 @@ def _preprocess_recursive(
             # Rebuild a relative path from the *current* file's dir to the temp file.
             temp_path = child_path.parent / f"_typst_web_pp_{child_path.name}"
             rel = temp_path.relative_to(path.parent)
-            return f'#include "{rel.as_posix()}"'
+            return f'{prefix}include "{rel.as_posix()}"'
         return m.group(0)  # couldn't preprocess, keep original path
 
     patched = _INCLUDE_RE.sub(_patch_include, pp)

@@ -61,58 +61,71 @@ def _find_figures(source: str) -> list[dict]:
 def compile_figures_to_svg(
     typ_path: Path,
     *,
+    extra_paths: list[Path] | None = None,
     root: Path | None = None,
     font_paths: list[Path] | None = None,
 ) -> dict[str, str]:
     """
-    Compile every #figure block in typ_path to SVG.
+    Compile every #figure block in typ_path (and any extra_paths) to SVG.
     Returns a dict mapping label (or "fig-N") → SVG string.
     """
     from .compiler import find_typst
     typst = find_typst()
     typ_path = Path(typ_path).resolve()
-    source = typ_path.read_text(encoding="utf-8")
 
-    # Collect ALL #import, #set, #show lines from the entire source
-    # (they may appear anywhere, e.g. cetz imported mid-document)
-    preamble_lines: list[str] = []
-    for line in source.splitlines():
-        stripped = line.strip()
-        if re.match(r"#(import|set|show|let)\b", stripped):
-            preamble_lines.append(line)
+    # Gather all (file_path, source) pairs to scan for #figure blocks
+    all_sources: list[tuple[Path, str]] = []
+    all_sources.append((typ_path, typ_path.read_text(encoding="utf-8")))
+    for ep in (extra_paths or []):
+        ep = Path(ep).resolve()
+        try:
+            all_sources.append((ep, ep.read_text(encoding="utf-8")))
+        except OSError:
+            pass
 
-    preamble = "\n".join(preamble_lines) + "\n"
-
-    figures = _find_figures(source)
     result: dict[str, str] = {}
+    global_idx = 0
 
-    for idx, fig in enumerate(figures):
-        label = fig["label"] or f"fig-{idx + 1}"
-        fig_source = (
-            preamble
-            + "#set page(width: auto, height: auto, margin: 8pt)\n"
-            + fig["body"]
-            + "\n"
-        )
+    for file_path, source in all_sources:
+        # Collect ALL #import, #set, #show lines from this file as preamble
+        preamble_lines: list[str] = []
+        for line in source.splitlines():
+            stripped = line.strip()
+            if re.match(r"#(import|set|show|let)\b", stripped):
+                preamble_lines.append(line)
+        preamble = "\n".join(preamble_lines) + "\n"
 
-        with tempfile.TemporaryDirectory() as tmp:
-            src_file = typ_path.parent / f"_typst_web_fig_{idx}.typ"
-            out_file = Path(tmp) / "fig.svg"
-            try:
-                src_file.write_text(fig_source, encoding="utf-8")
-                cmd = [typst, "compile", str(src_file), str(out_file), "--format", "svg"]
-                if root:
-                    cmd += ["--root", str(root)]
-                if font_paths:
-                    for fp in font_paths:
-                        cmd += ["--font-path", str(fp)]
-                r = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-                if r.returncode == 0 and out_file.exists():
-                    result[label] = out_file.read_text(encoding="utf-8")
-            except Exception:
-                pass
-            finally:
-                src_file.unlink(missing_ok=True)
+        figures = _find_figures(source)
+
+        for fig in figures:
+            label = fig["label"] or f"fig-{global_idx + 1}"
+            fig_source = (
+                preamble
+                + "#set page(width: auto, height: auto, margin: 8pt)\n"
+                + fig["body"]
+                + "\n"
+            )
+
+            with tempfile.TemporaryDirectory() as tmp:
+                src_file = file_path.parent / f"_typst_web_fig_{global_idx}.typ"
+                out_file = Path(tmp) / "fig.svg"
+                try:
+                    src_file.write_text(fig_source, encoding="utf-8")
+                    cmd = [typst, "compile", str(src_file), str(out_file), "--format", "svg"]
+                    if root:
+                        cmd += ["--root", str(root)]
+                    if font_paths:
+                        for fp in font_paths:
+                            cmd += ["--font-path", str(fp)]
+                    r = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+                    if r.returncode == 0 and out_file.exists():
+                        result[label] = out_file.read_text(encoding="utf-8")
+                except Exception:
+                    pass
+                finally:
+                    src_file.unlink(missing_ok=True)
+
+            global_idx += 1
 
     return result
 
