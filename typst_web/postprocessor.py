@@ -275,12 +275,22 @@ def _inject_sketches(html: str, sketches) -> str:
         script = (
             f'<script>(function(){{'
             f'var _cid="{cid}";'
+            # Measure container width before p5 initialises so createCanvas can use it.
+            # The container div is already in the DOM at this point (it appears just above
+            # this inline script), so clientWidth reflects the actual laid-out width.
+            f'var _cw=(document.getElementById(_cid)||{{}}).clientWidth||640;'
             f'new p5(function(p){{'
+            # Auto-parent any DOM elements (sliders, buttons…) into the sketch container.
             f'["createSlider","createButton","createInput","createSelect",'
             f'"createRadio","createCheckbox","createFileInput"].forEach(function(m){{'
             f'if(!p[m])return;var _o=p[m].bind(p);'
             f'p[m]=function(){{var e=_o.apply(null,arguments);e.parent(_cid);return e;}};'
             f'}});'
+            # Cap createCanvas width at the container width so sketches never overflow.
+            # Users can also reference _containerWidth directly in their drawing code.
+            f'var _origCC=p.createCanvas.bind(p);'
+            f'p.createCanvas=function(w,h,r){{return _origCC(Math.min(w,_cw),h,r);}};'
+            f'var _containerWidth=_cw;'
             f'\n{safe_js}\n'
             f'}},_cid);'
             f'}})();</script>'
