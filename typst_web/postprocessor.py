@@ -8,6 +8,19 @@ No CDN dependencies, no JavaScript math rendering.
 from __future__ import annotations
 
 import re
+from pathlib import Path
+
+_P5_JS_PATH = Path(__file__).parent / "static" / "p5.min.js"
+
+
+def _load_p5_js() -> str:
+    try:
+        return _P5_JS_PATH.read_text(encoding="utf-8")
+    except OSError as e:
+        raise RuntimeError(
+            f"p5.min.js not found at {_P5_JS_PATH}. "
+            "Download it from https://p5js.org and place it there."
+        ) from e
 
 
 # ── Heading utilities ─────────────────────────────────────────────────────────
@@ -246,6 +259,43 @@ def _inject_canvas_svgs(html: str, canvas_svgs: list[str]) -> str:
     return html
 
 
+# ── p5.js sketch injection ───────────────────────────────────────────────────
+
+def _inject_sketches(html: str, sketches) -> str:
+    """Replace <div data-sketch="N"> placeholders with p5.js sketch containers."""
+    for sk in sketches:
+        n = sk.index
+        cid = f"p5-sketch-{n}"
+        # Guard against </script> appearing in user JS (would break the script tag)
+        safe_js = sk.js_body.replace("</script>", r"<\/script>")
+        container = f'<div id="{cid}" class="p5-sketch-container"></div>'
+        # IIFE isolates variables between sketches.
+        # The auto-parent wrapper redirects p.createSlider / createButton / etc.
+        # into the sketch container div instead of <body> (p5.js instance-mode default).
+        script = (
+            f'<script>(function(){{'
+            f'var _cid="{cid}";'
+            f'new p5(function(p){{'
+            f'["createSlider","createButton","createInput","createSelect",'
+            f'"createRadio","createCheckbox","createFileInput"].forEach(function(m){{'
+            f'if(!p[m])return;var _o=p[m].bind(p);'
+            f'p[m]=function(){{var e=_o.apply(null,arguments);e.parent(_cid);return e;}};'
+            f'}});'
+            f'\n{safe_js}\n'
+            f'}},_cid);'
+            f'}})();</script>'
+        )
+        replacement = f'{container}\n{script}'
+        html = re.sub(
+            rf'<div[^>]*\bdata-sketch="{n}"[^>]*>.*?</div>',
+            lambda _m, r=replacement: r,
+            html,
+            count=1,
+            flags=re.DOTALL,
+        )
+    return html
+
+
 # ── TOC ───────────────────────────────────────────────────────────────────────
 
 def _build_toc_html(headings: list[dict]) -> str:
@@ -271,6 +321,7 @@ def build_web_page(
     expressions,            # list[MathExpr] from preprocessor
     *,
     canvas_svgs: list[str] | None = None,
+    sketches=None,          # list[SketchExpr] | None
     title: str = "",
     subtitle: str = "",
     authors=None,  # list[Author] | None
@@ -301,6 +352,9 @@ def build_web_page(
     content = _inject_math_svgs(content, math_svgs, expressions)
     if canvas_svgs:
         content = _inject_canvas_svgs(content, canvas_svgs)
+    sketches = sketches or []
+    if sketches:
+        content = _inject_sketches(content, sketches)
     content = _inject_thm_anchors(content)
 
     headings = _extract_headings(content)
@@ -311,6 +365,8 @@ def build_web_page(
     date_html     = f'<span class="doc-date">{date}</span>' if date else ""
     subtitle_html = f'<div class="doc-subtitle">{subtitle}</div>' if subtitle else ""
     sidebar_subtitle_html = f'<div class="sidebar-doc-subtitle">{subtitle}</div>' if subtitle else ""
+
+    p5_script = f'<script>\n{_load_p5_js()}\n</script>' if sketches else ""
 
     return (
         _TEMPLATE
@@ -323,6 +379,7 @@ def build_web_page(
         .replace("{{CONTENT}}",               content)
         .replace('"{{AUTHORS_STR}}"',         f'"{authors_str}"')
         .replace('"{{DATE_STR}}"',            f'"{date}"')
+        .replace("{{P5_SCRIPT}}",             p5_script)
     )
 
 
@@ -336,6 +393,7 @@ _TEMPLATE = """\
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>{{TITLE}}</title>
 <meta name="generator" content="typst-to-web">
+{{P5_SCRIPT}}
 <style>
 /* ── Design tokens ─────────────────────────────────────────────────────── */
 :root {
@@ -560,6 +618,18 @@ figcaption { font-family: var(--font-ui); font-size: 0.85rem; color: var(--text-
 .typst-canvas-svg { display: block; max-width: 100%; height: auto; margin: 0 auto; }
 .canvas-figure { text-align: center; margin: 1.5rem 0; }
 figure img, #article img { display: block; max-width: 100%; height: auto; margin: 0 auto; }
+
+/* ── p5.js sketch containers ─────────────────────────────────────────── */
+.p5-sketch-container {
+  display: block;
+  margin: 1.5rem auto;
+  line-height: 0;
+  text-align: center;
+}
+.p5-sketch-container canvas {
+  display: inline-block;
+  max-width: 100%;
+}
 
 /* ── Theorem environments ─────────────────────────────────────────────── */
 .typst-thm {
