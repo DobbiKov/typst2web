@@ -284,7 +284,9 @@ def main(argv: list[str] | None = None) -> int:
     n_inline  = sum(1 for e in pp.expressions if not e.display)
     n_display = sum(1 for e in pp.expressions if e.display)
     n_files   = 1 + len(pp.included)
-    print(f"      {n_files} file(s), {n_inline} inline + {n_display} display math expressions.", flush=True)
+    n_sketches = len(pp.sketches)
+    sketch_info = f", {n_sketches} sketch(es)" if n_sketches else ""
+    print(f"      {n_files} file(s), {n_inline} inline + {n_display} display math expressions{sketch_info}.", flush=True)
 
     # Inject HTML overrides for theorem environments (they are dropped by
     # Typst HTML export unless their function definitions are replaced).
@@ -370,6 +372,7 @@ def main(argv: list[str] | None = None) -> int:
         math_svgs,
         pp.expressions,
         canvas_svgs=canvas_svgs,
+        sketches=pp.sketches,
         title=settings.title or typ_path.stem,
         subtitle=settings.subtitle,
         authors=settings.authors,

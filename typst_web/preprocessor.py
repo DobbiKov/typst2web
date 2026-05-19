@@ -33,10 +33,18 @@ class CanvasExpr:
 
 
 @dataclass
+class SketchExpr:
+    index: int
+    js_body: str           # raw JavaScript extracted from the fenced code block
+    source_path: Path = field(default_factory=Path)
+
+
+@dataclass
 class PreprocessResult:
     source: str                      # modified Typst source with placeholders
     expressions: list[MathExpr] = field(default_factory=list)
     canvases: list[CanvasExpr] = field(default_factory=list)
+    sketches: list[SketchExpr] = field(default_factory=list)
     # Included files that were preprocessed: original_path → modified_source
     included: dict[Path, str] = field(default_factory=dict)
 
@@ -53,6 +61,16 @@ def _canvas_placeholder(n: int) -> str:
     return f'#html.elem("div", attrs: ("data-canvas": "{n}"), [])'
 
 
+def _sketch_placeholder(n: int) -> str:
+    return f'#html.elem("div", attrs: ("data-sketch": "{n}"), [])'
+
+
+# Matches: #sketch[ ```js\n...\n``` ]  (language tag optional: js or javascript)
+_SKETCH_RE = re.compile(
+    r'#sketch\s*\[\s*```(?:js|javascript)?\s*\n([\s\S]*?)```\s*\]',
+)
+
+
 def preprocess(source: str) -> PreprocessResult:
     """
     Scan Typst source and replace math at markup level with placeholder comments.
@@ -63,6 +81,17 @@ def preprocess(source: str) -> PreprocessResult:
 
     Math is replaced when: brace_depth == 0  or  bracket_depth > 0
     """
+    # Pre-pass: extract #sketch[```js...```] blocks before the state machine so
+    # that raw-block content (triple backticks) is never seen by the scanner.
+    sketches: list[SketchExpr] = []
+
+    def _replace_sketch(m: re.Match) -> str:
+        idx = len(sketches)
+        sketches.append(SketchExpr(idx, m.group(1)))
+        return _sketch_placeholder(idx)
+
+    source = _SKETCH_RE.sub(_replace_sketch, source)
+
     out: list[str] = []
     expressions: list[MathExpr] = []
     canvases: list[CanvasExpr] = []
@@ -358,7 +387,7 @@ def preprocess(source: str) -> PreprocessResult:
             result_src,
         )
 
-    return PreprocessResult(source=result_src, expressions=expressions, canvases=canvases)
+    return PreprocessResult(source=result_src, expressions=expressions, canvases=canvases, sketches=sketches)
 
 
 # ── Recursive entry point ─────────────────────────────────────────────────────
@@ -387,15 +416,17 @@ def preprocess_file(
     """
     expressions: list[MathExpr] = []
     canvases: list[CanvasExpr] = []
+    sketches: list[SketchExpr] = []
     included: dict[Path, str] = {}
     _preprocess_recursive(
-        typ_path.resolve(), expressions, canvases, included, set(),
+        typ_path.resolve(), expressions, canvases, sketches, included, set(),
         source_transform=source_transform,
     )
     # The main file's preprocessed source is stored in included[typ_path]
     main_source = included.pop(typ_path.resolve())
     return PreprocessResult(
-        source=main_source, expressions=expressions, canvases=canvases, included=included
+        source=main_source, expressions=expressions, canvases=canvases,
+        sketches=sketches, included=included,
     )
 
 
@@ -403,6 +434,7 @@ def _preprocess_recursive(
     path: Path,
     expressions: list[MathExpr],
     canvases: list[CanvasExpr],
+    sketches: list[SketchExpr],
     included: dict[Path, str],
     seen: set[Path],
     *,
@@ -421,8 +453,8 @@ def _preprocess_recursive(
     if source_transform is not None:
         source = source_transform(source)
 
-    # Preprocess this file's math + canvases, sharing the global lists
-    pp = _preprocess_with_shared_lists(source, expressions, canvases, path)
+    # Preprocess this file's math + canvases + sketches, sharing the global lists
+    pp = _preprocess_with_shared_lists(source, expressions, canvases, sketches, path)
 
     # Now recurse into #include'd files found in the original source
     # and rewrite include paths to point at the temp preprocessed versions
@@ -431,7 +463,7 @@ def _preprocess_recursive(
         rel = m.group(2)
         child_path = (path.parent / rel).resolve()
         _preprocess_recursive(
-            child_path, expressions, canvases, included, seen,
+            child_path, expressions, canvases, sketches, included, seen,
             source_transform=source_transform,
         )
         if child_path in included:
@@ -450,11 +482,12 @@ def _preprocess_with_shared_lists(
     source: str,
     expressions: list[MathExpr],
     canvases: list[CanvasExpr],
+    sketches: list[SketchExpr],
     source_path: Path | None = None,
 ) -> str:
     """
-    Like preprocess() but appends to existing shared expression and canvas lists
-    so indices are globally unique across all files.
+    Like preprocess() but appends to existing shared expression, canvas, and
+    sketch lists so indices are globally unique across all files.
     """
     pp = preprocess(source)
 
@@ -484,6 +517,19 @@ def _preprocess_with_shared_lists(
         if source_path is not None:
             cv.source_path = source_path  # type: ignore[attr-defined]
     canvases.extend(pp.canvases)
+
+    # ── Re-index sketch expressions ───────────────────────────────────────
+    sketch_offset = len(sketches)
+    for sk in reversed(pp.sketches):
+        old_idx = sk.index
+        new_idx = old_idx + sketch_offset
+        old = f'#html.elem("div", attrs: ("data-sketch": "{old_idx}"), [])'
+        new = f'#html.elem("div", attrs: ("data-sketch": "{new_idx}"), [])'
+        adjusted_source = adjusted_source.replace(old, new, 1)
+        sk.index = new_idx
+        if source_path is not None:
+            sk.source_path = source_path
+    sketches.extend(pp.sketches)
 
     return adjusted_source
 
