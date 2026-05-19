@@ -261,9 +261,19 @@ a sketch doesn't appear.
 `</script>` (e.g. in a comment), it will be automatically escaped to
 `<\/script>` by the preprocessor — this is handled for you transparently.
 
-**Canvas size is fixed.** p5.js canvases don't automatically resize with the
-page. Set an explicit size in `p.createCanvas()` that fits within the
-`--content-max` CSS variable (default 780px wide).
+**Canvas width is capped automatically.** If you pass a width larger than the
+container to `p.createCanvas()`, it is silently clamped to the container's
+actual width — so sketches never overflow on narrow screens. Use the injected
+`_containerWidth` variable to make your drawing code adapt too:
+
+```js
+p.setup = function() {
+  p.createCanvas(_containerWidth, 300);  // always fits
+};
+p.draw = function() {
+  p.line(0, 150, _containerWidth, 150);  // full width line
+};
+```
 
 ---
 
