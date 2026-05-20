@@ -9,6 +9,7 @@ cli.py::main()
   1. Collect math.op names from raw *.typ files (preamble.typ etc.)
   2. preprocess_file(source_transform=_rewrite_mathop_textmode)
        → replaces $...$ and canvas blocks with html.elem placeholders
+       → extracts #sketch[```js...```] blocks (pre-pass regex, before state machine)
        → rewrites #Bern($x$) → $Bern(x)$ before extraction
   3. _inject_thm_overrides() on each source file
        → replaces theorem env functions (#thm, #defn, #rmk …) with figure()-
@@ -18,6 +19,8 @@ cli.py::main()
   6. compile_figures_to_svg()  — compiles #figure blocks that contain cetz
   7. compile_canvases_to_svgs()  — compiles extracted canvas blocks
   8. build_web_page()  — stitches everything into _TEMPLATE
+       → injects p5.js bundle into <head> (only when sketches are present)
+       → injects sketch containers + per-sketch <script> into content
 ```
 
 ## Module map
@@ -25,13 +28,23 @@ cli.py::main()
 | File | Role |
 |---|---|
 | `cli.py` | Entry point, math.op rewrite, theorem override injection, orchestration |
-| `preprocessor.py` | Replaces math/canvas with `html.elem` placeholders; `preprocess_file()` recurses into `#include`d files |
+| `preprocessor.py` | Replaces math/canvas/sketch with `html.elem` placeholders; `preprocess_file()` recurses into `#include`d files |
 | `compiler.py` | Thin wrapper around the `typst` CLI binary |
 | `math_renderer.py` | Batch-compiles math expressions to SVG; `_clean_svg()` strips white bg, sets `fill="currentColor"`, converts pt→em |
 | `figure_renderer.py` | `compile_figures_to_svg()` for cetz figures; `compile_canvases_to_svgs()` for canvas blocks |
-| `postprocessor.py` | `build_web_page()`: injects SVGs into HTML, builds TOC, renders `_TEMPLATE` |
+| `postprocessor.py` | `build_web_page()`: injects SVGs + sketches into HTML, bundles p5.js, builds TOC, renders `_TEMPLATE` |
 | `parser.py` | Extracts headings/title/authors/labels from raw `.typ` source |
 | `builder.py` | (older HTML assembler, largely superseded by postprocessor) |
+| `static/p5.min.js` | Vendored p5.js v1.11.3 bundle; embedded inline only when document contains `#sketch` blocks |
+
+## Key data structures
+
+| Dataclass | Module | Fields |
+|---|---|---|
+| `MathExpr` | `preprocessor.py` | `index`, `body`, `display`, `label`, `numbered` |
+| `CanvasExpr` | `preprocessor.py` | `index`, `body`, `source_path` |
+| `SketchExpr` | `preprocessor.py` | `index`, `js_body`, `source_path` |
+| `PreprocessResult` | `preprocessor.py` | `source`, `expressions`, `canvases`, `sketches`, `included` |
 
 ## Key design constraints
 
@@ -46,6 +59,14 @@ cli.py::main()
 **Dark theme**: math SVG glyphs use `fill="currentColor"` → inherit `color` CSS. Canvas/figure SVGs (cetz diagrams) get `filter: invert(1) hue-rotate(180deg)` in dark mode.
 
 **Math placeholder regex**: uses backreference `<(span|div)[^>]*\bdata-math="N"[^>]*>.*?</\1>` (not `</(?:span|div)>`) to avoid a display-math `<div>` consuming the first `</span>` of nested inline content.
+
+**Why `#sketch` uses a pre-pass regex, not the state machine**: sketch blocks contain a triple-backtick raw code block inside `[...]`. The state machine's `_extract_balanced` does not handle triple backticks, so JS code containing `[` or `]` would corrupt the bracket-depth counter. The pre-pass `_SKETCH_RE` regex runs before the state machine and consumes the entire block atomically.
+
+**Why p5.js is in `<head>` not at `</body>`**: sketch `<script>` tags are emitted inline in the document body (right after each `<div id="p5-sketch-N">`). If p5.js were loaded at the end of `<body>`, `p5` would be undefined when those inline scripts execute. Loading in `<head>` ensures `p5` is available before any body content runs. The bundle is only injected when the document has sketches, so non-sketch documents have zero overhead.
+
+**Why DOM elements created in a sketch are auto-parented**: p5.js instance mode only routes `createCanvas()` into the container element passed to `new p5(fn, containerId)`. All other DOM-creating methods (`createSlider`, `createButton`, etc.) default to appending to `<body>`. The sketch wrapper overrides these methods on the `p` instance to call `.parent(containerId)` automatically, keeping all sketch UI self-contained.
+
+**p5.js instance mode**: each sketch is wrapped in `new p5(function(p){ ... }, containerId)`. Users write `p.setup`, `p.draw`, and call all p5 APIs as `p.xxx`. An IIFE around each sketch prevents variable name collisions between multiple sketches on the same page.
 
 ## Theorem environments supported
 
