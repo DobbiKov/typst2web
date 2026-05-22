@@ -58,20 +58,22 @@ $ overline(X) approx cal(N)(mu, sigma^2 / n) . $
 
 ```typst
 #sketch[
-  ```js
+  ````js
   p.setup = function() { p.createCanvas(500, 300); };
   p.draw  = function() {
     p.background(15, 15, 30);
     p.fill(120, 200, 255);
     p.circle(p.mouseX, p.mouseY, 40);
   };
-  ```
+  ````
 ]
 ```
 
 All p5.js calls use the `p.` prefix (instance mode). Sliders and buttons
 created with `p.createSlider()` / `p.createButton()` are automatically placed
 inside the sketch container. See [`docs/animations-tutorial.md`](docs/animations-tutorial.md) for full docs.
+
+Create animations interactively with Claude using [the artifact](https://claude.ai/public/artifacts/4b8710d1-22d3-44ca-848d-d0340d170825)
 
 ### Settings file
 
