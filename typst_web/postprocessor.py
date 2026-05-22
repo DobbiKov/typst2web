@@ -278,8 +278,10 @@ def _inject_sketches(html: str, sketches) -> str:
             # Measure container width before p5 initialises so createCanvas can use it.
             # The container div is already in the DOM at this point (it appears just above
             # this inline script), so clientWidth reflects the actual laid-out width.
-            f'var _cw=(document.getElementById(_cid)||{{}}).clientWidth||640;'
-            f'new p5(function(p){{'
+            f'var _el=document.getElementById(_cid);'
+            f'var _cw=(_el||{{}}).clientWidth||640;'
+            f'var _userPaused=false;'
+            f'var _inst=new p5(function(p){{'
             # Auto-parent any DOM elements (sliders, buttons…) into the sketch container.
             f'["createSlider","createButton","createInput","createSelect",'
             f'"createRadio","createCheckbox","createFileInput"].forEach(function(m){{'
@@ -293,6 +295,29 @@ def _inject_sketches(html: str, sketches) -> str:
             f'var _containerWidth=_cw;'
             f'\n{safe_js}\n'
             f'}},_cid);'
+            # Pause/play toggle button injected into the container.
+            f'var _btn=document.createElement("button");'
+            f'_btn.className="p5-sketch-btn";'
+            f'_btn.title="Pause animation";'
+            f'_btn.textContent="\u23f8";'
+            f'_btn.addEventListener("click",function(){{'
+            f'_userPaused=!_userPaused;'
+            f'if(_userPaused){{_inst.noLoop();_btn.textContent="\u25b6";_btn.title="Resume animation";}}'
+            f'else{{_inst.loop();_btn.textContent="\u23f8";_btn.title="Pause animation";}}'
+            f'}});'
+            f'if(_el)_el.appendChild(_btn);'
+            # IntersectionObserver: auto-pause when scrolled out of view, resume on re-entry.
+            # Only acts when the user has not manually paused.
+            f'if(window.IntersectionObserver){{'
+            f'var _io=new IntersectionObserver(function(entries){{'
+            f'entries.forEach(function(e){{'
+            f'if(_userPaused)return;'
+            f'if(e.isIntersecting)_inst.loop();'
+            f'else _inst.noLoop();'
+            f'}});'
+            f'}},{{threshold:0.1}});'
+            f'if(_el)_io.observe(_el);'
+            f'}}'
             f'}})();</script>'
         )
         replacement = f'{container}\n{script}'
@@ -632,6 +657,7 @@ figure img, #article img { display: block; max-width: 100%; height: auto; margin
 /* ── p5.js sketch containers ─────────────────────────────────────────── */
 .p5-sketch-container {
   display: block;
+  position: relative;
   margin: 1.5rem auto;
   line-height: 0;
   text-align: center;
@@ -640,6 +666,26 @@ figure img, #article img { display: block; max-width: 100%; height: auto; margin
   display: inline-block;
   max-width: 100%;
 }
+.p5-sketch-btn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 10;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: rgba(0,0,0,.35);
+  color: #fff;
+  font-size: 11px;
+  line-height: 28px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity .15s;
+}
+.p5-sketch-container:hover .p5-sketch-btn { opacity: 1; }
+[data-theme="dark"] .p5-sketch-btn { background: rgba(255,255,255,.2); }
 
 /* ── Theorem environments ─────────────────────────────────────────────── */
 .typst-thm {
