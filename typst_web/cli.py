@@ -120,7 +120,7 @@ def _build_thm_overrides(lang: str) -> str:
         '#show ref: it => {\n'
         '  if it.element != none and it.element.func() == figure {\n'
         '    let k = it.element.kind\n'
-        '    if k.starts-with("_tw-") {\n'
+        '    if type(k) == str and k.starts-with("_tw-") {\n'
         '      let lbl = it.element.supplement\n'
         '      let n = it.element.counter.display(it.element.numbering)\n'
         '      let anchor = str(it.target)\n'
@@ -292,8 +292,68 @@ def main(argv: list[str] | None = None) -> int:
     # Typst HTML export unless their function definitions are replaced).
     lang = _detect_language(typ_path)
 
+    _HAS_OUTLINE_RE = re.compile(r'#(?:outline|toc)\s*\(')
+
+    # Heading show rule: overrides any template's PDF-only heading renderer so
+    # headings survive Typst HTML export as proper <h1>–<h6> elements.
+    # We embed both a stable id (tw-sec-N-M) and the display number (data-num)
+    # so postprocessor can inject the number span without needing the outline nav.
+    _HEADING_OVERRIDE = (
+        "\n// typst-to-web: heading HTML override\n"
+        "#show heading: it => context {\n"
+        "  let cnt = counter(heading).at(it.location())\n"
+        '  let id = "tw-sec-" + cnt.map(str).join("-")\n'
+        '  let num = cnt.map(str).join(".")\n'
+        '  html.elem("h" + str(it.level), attrs: ("id": id, "data-num": num), it.body)\n'
+        "}\n"
+    )
+
+    # Matches the end of a `#show: fn.with(...)` or `#show: fn` call, so we can
+    # inject heading overrides immediately inside the show scope.
+    _SHOW_RULE_RE = re.compile(r'^#show\s*:\s*\w+', re.MULTILINE)
+
+    def _inject_heading_override(src: str) -> str:
+        """
+        Insert the heading show-rule override right after the FIRST top-level
+        `#show: fn(...)` call (the template call, e.g. `#show: dobbikov.with(...)`).
+        We scan from the start of the match and track paren depth to find where
+        the full multi-line call ends, then insert after that line.
+        If no such line is found, append at end.
+        """
+        m = _SHOW_RULE_RE.search(src)
+        if not m:
+            return src + _HEADING_OVERRIDE
+
+        # Scan from the beginning of this #show: line tracking paren depth.
+        # We end when depth returns to 0 AND we're on a newline boundary.
+        i = m.start()
+        depth = 0
+        started = False
+        while i < len(src):
+            c = src[i]
+            if c == '(':
+                depth += 1
+                started = True
+            elif c == ')':
+                depth -= 1
+            elif c == '\n' and (not started or depth == 0):
+                # End of line and parens are balanced — insert here
+                i += 1  # include the newline itself
+                break
+            i += 1
+        return src[:i] + _HEADING_OVERRIDE + src[i:]
+
     def _prepare_source(src: str) -> str:
-        return _inject_thm_overrides(src, lang)
+        src = _inject_thm_overrides(src, lang)
+        # Inject heading override right after the template #show: call so it is
+        # the innermost show rule for headings, shadowing any PDF-only renderer.
+        src = _inject_heading_override(src)
+        # Ensure an #outline() exists so Typst emits <nav role="doc-toc">,
+        # which gives us heading text + numbering metadata.
+        # The nav is stripped from the body in build_web_page.
+        if not _HAS_OUTLINE_RE.search(src):
+            src += "\n// typst-to-web: synthetic outline for heading extraction\n#outline()\n"
+        return src
 
     main_source = _prepare_source(pp.source)
 

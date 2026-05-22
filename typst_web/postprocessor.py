@@ -93,6 +93,56 @@ def _inject_headings_from_toc(html: str, heading_map: dict[str, dict]) -> str:
     return result
 
 
+def _parse_tw_nav(html: str) -> dict[str, str]:
+    """
+    Parse the <nav role="doc-toc"> generated when our heading override is active.
+    The nav links use href="#tw-sec-N" and carry <span class="prefix">1.1</span>.
+    Returns {tw-sec-id: number_string}, e.g. {"tw-sec-1": "1", "tw-sec-1-1": "1.1"}.
+    """
+    id_to_prefix: dict[str, str] = {}
+    nav_m = re.search(r'<nav\s[^>]*role="doc-toc"[^>]*>([\s\S]*?)</nav>', html)
+    if not nav_m:
+        return id_to_prefix
+    for m in re.finditer(
+        r'<a\s[^>]*href="#(tw-sec-[^"]+)"[^>]*>'
+        r'(?:.*?<span[^>]*class="prefix"[^>]*>([^<]*)</span>)?',
+        nav_m.group(0), re.DOTALL
+    ):
+        sec_id = m.group(1)
+        prefix = (m.group(2) or "").strip()
+        if prefix:
+            id_to_prefix[sec_id] = prefix
+    return id_to_prefix
+
+
+def _inject_heading_numbers(html: str, _unused=None) -> str:
+    """
+    Inject <span class="heading-number"> and a # anchor into <hN id="tw-sec-*">
+    elements produced by the heading show-rule override.
+    The number is read from the data-num attribute emitted by the show rule.
+    """
+    def _patch(m: re.Match) -> str:
+        tag_open = m.group(1)
+        inner = m.group(2)
+        tag_close = m.group(3)
+        id_m = re.search(r'\bid="([^"]+)"', tag_open)
+        sec_id = id_m.group(1) if id_m else ""
+        num_m = re.search(r'\bdata-num="([^"]*)"', tag_open)
+        num = (num_m.group(1) if num_m else "").strip()
+        # Strip data-num from the emitted tag — it's only a carrier attribute
+        clean_open = re.sub(r'\s*data-num="[^"]*"', '', tag_open)
+        prefix_html = f'<span class="heading-number">{num}</span>\u00a0' if num else ""
+        anchor = f'<a class="heading-anchor" href="#{sec_id}" aria-label="Link to this section">#</a>' if sec_id else ""
+        return f'{clean_open}{prefix_html}{inner}{anchor}{tag_close}'
+
+    return re.sub(
+        r'(<h[1-6][^>]*\bid="tw-sec-[^"]*"[^>]*>)([\s\S]*?)(</h[1-6]>)',
+        _patch,
+        html,
+        flags=re.IGNORECASE,
+    )
+
+
 def _extract_headings(html: str) -> list[dict]:
     headings = []
     for m in re.finditer(r"<h([1-6])[^>]*>(.*?)</h\1>", html, re.IGNORECASE | re.DOTALL):
@@ -379,10 +429,14 @@ def build_web_page(
     body_m = re.search(r"<body>([\s\S]*)</body>", typst_html, re.IGNORECASE)
     content = body_m.group(1).strip() if body_m else typst_html
 
-    # Parse Typst's built-in TOC before any transformations
+    # Parse Typst's built-in TOC before any transformations, then strip it —
+    # our sidebar already shows the TOC, and a synthetic #outline() may have
+    # been injected by cli.py to ensure heading metadata is always available.
     heading_map = _parse_typst_toc(content)
+    content = re.sub(r'<nav\s[^>]*role="doc-toc"[^>]*>[\s\S]*?</nav>', '', content)
 
     content = _inject_headings_from_toc(content, heading_map)
+    content = _inject_heading_numbers(content)
     content = _inject_figures(content, figure_svgs)
     content = _inject_math_svgs(content, math_svgs, expressions)
     if canvas_svgs:
