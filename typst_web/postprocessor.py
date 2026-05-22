@@ -325,27 +325,28 @@ def _inject_sketches(html: str, sketches) -> str:
         script = (
             f'<script>(function(){{'
             f'var _cid="{cid}";'
-            # Measure container width before p5 initialises so createCanvas can use it.
-            # The container div is already in the DOM at this point (it appears just above
-            # this inline script), so clientWidth reflects the actual laid-out width.
             f'var _el=document.getElementById(_cid);'
             f'var _cw=(_el||{{}}).clientWidth||640;'
             f'var _userPaused=false;'
-            f'var _inst=new p5(function(p){{'
-            # Auto-parent any DOM elements (sliders, buttons…) into the sketch container.
+            f'var _inst;'
+            # Factory: creates a fresh p5 instance in the container.
+            # Called on first load and on restart.
+            f'function _make(){{'
+            f'_inst=new p5(function(p){{'
             f'["createSlider","createButton","createInput","createSelect",'
             f'"createRadio","createCheckbox","createFileInput"].forEach(function(m){{'
             f'if(!p[m])return;var _o=p[m].bind(p);'
             f'p[m]=function(){{var e=_o.apply(null,arguments);e.parent(_cid);return e;}};'
             f'}});'
-            # Cap createCanvas width at the container width so sketches never overflow.
-            # Users can also reference _containerWidth directly in their drawing code.
             f'var _origCC=p.createCanvas.bind(p);'
             f'p.createCanvas=function(w,h,r){{return _origCC(Math.min(w,_cw),h,r);}};'
             f'var _containerWidth=_cw;'
             f'\n{safe_js}\n'
             f'}},_cid);'
-            # Pause/play toggle button injected into the container.
+            # Re-append buttons after p5.remove() wipes the container DOM.
+            f'if(_el){{_el.appendChild(_btn);_el.appendChild(_rbtn);}}'
+            f'}}'
+            # Pause/play button
             f'var _btn=document.createElement("button");'
             f'_btn.className="p5-sketch-btn";'
             f'_btn.title="Pause animation";'
@@ -355,9 +356,20 @@ def _inject_sketches(html: str, sketches) -> str:
             f'if(_userPaused){{_inst.noLoop();_btn.textContent="\u25b6";_btn.title="Resume animation";}}'
             f'else{{_inst.loop();_btn.textContent="\u23f8";_btn.title="Pause animation";}}'
             f'}});'
-            f'if(_el)_el.appendChild(_btn);'
-            # IntersectionObserver: auto-pause when scrolled out of view, resume on re-entry.
-            # Only acts when the user has not manually paused.
+            # Restart button: destroy current instance and create a fresh one.
+            f'var _rbtn=document.createElement("button");'
+            f'_rbtn.className="p5-sketch-btn p5-sketch-btn-restart";'
+            f'_rbtn.title="Restart animation";'
+            f'_rbtn.textContent="\u21ba";'
+            f'_rbtn.addEventListener("click",function(){{'
+            f'_userPaused=false;'
+            f'_btn.textContent="\u23f8";_btn.title="Pause animation";'
+            f'_inst.remove();'  # destroys canvas + clears container
+            f'_make();'
+            f'}});'
+            # Initial creation
+            f'_make();'
+            # IntersectionObserver: auto-pause when scrolled out of view.
             f'if(window.IntersectionObserver){{'
             f'var _io=new IntersectionObserver(function(entries){{'
             f'entries.forEach(function(e){{'
@@ -738,6 +750,7 @@ figure img, #article img { display: block; max-width: 100%; height: auto; margin
   opacity: 0;
   transition: opacity .15s;
 }
+.p5-sketch-btn-restart { top: 40px; font-size: 14px; }
 .p5-sketch-container:hover .p5-sketch-btn { opacity: 1; }
 [data-theme="dark"] .p5-sketch-btn { background: rgba(255,255,255,.2); }
 
