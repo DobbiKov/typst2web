@@ -65,9 +65,11 @@ def _sketch_placeholder(n: int) -> str:
     return f'#html.elem("div", attrs: ("data-sketch": "{n}"), [])'
 
 
-# Matches: #sketch[ ```js\n...\n``` ]  (language tag optional: js or javascript)
+# Matches: #sketch[ ```js\n...\n``` ]  or  sketch[ ```js\n...\n``` ]
+# (the # is optional so code-mode calls like `#let fig = sketch[...]` are caught)
+# Language tag optional: js or javascript
 _SKETCH_RE = re.compile(
-    r'#sketch\s*\[\s*```(?:js|javascript)?\s*\n([\s\S]*?)```\s*\]',
+    r'(#?)sketch\s*\[\s*```(?:js|javascript)?\s*\n([\s\S]*?)```\s*\]',
 )
 
 
@@ -87,8 +89,13 @@ def preprocess(source: str) -> PreprocessResult:
 
     def _replace_sketch(m: re.Match) -> str:
         idx = len(sketches)
-        sketches.append(SketchExpr(idx, m.group(1)))
-        return _sketch_placeholder(idx)
+        sketches.append(SketchExpr(idx, m.group(2)))
+        # Preserve whether the call had a leading # (markup mode) or not (code mode).
+        # Without #, emit plain html.elem(...) so code context stays syntactically valid.
+        if m.group(1) == "#":
+            return _sketch_placeholder(idx)
+        else:
+            return f'html.elem("div", attrs: ("data-sketch": "{idx}"), [])'
 
     source = _SKETCH_RE.sub(_replace_sketch, source)
 
@@ -393,6 +400,7 @@ def preprocess(source: str) -> PreprocessResult:
 # ── Recursive entry point ─────────────────────────────────────────────────────
 
 _INCLUDE_RE = re.compile(r'(#?)include\s+"([^"]+)"')
+_IMPORT_RE = re.compile(r'^#import\s+"([^"]+)"', re.MULTILINE)
 
 
 def preprocess_file(
@@ -440,7 +448,7 @@ def _preprocess_recursive(
     *,
     source_transform=None,
 ) -> None:
-    """Depth-first preprocessing of path and all its #include'd children."""
+    """Depth-first preprocessing of path and all its #include'd and #import'd children."""
     if path in seen:
         return
     seen.add(path)
@@ -452,6 +460,17 @@ def _preprocess_recursive(
 
     if source_transform is not None:
         source = source_transform(source)
+
+    # Recurse into #import'd files first (before the state machine runs on this
+    # file) so that sketches/canvases defined there get registered with globally
+    # unique indices.  We do NOT rewrite the import paths — Typst resolves
+    # imports itself; we just need the placeholders extracted from those files.
+    for im in _IMPORT_RE.finditer(source):
+        child_path = (path.parent / im.group(1)).resolve()
+        _preprocess_recursive(
+            child_path, expressions, canvases, sketches, included, seen,
+            source_transform=source_transform,
+        )
 
     # Preprocess this file's math + canvases + sketches, sharing the global lists
     pp = _preprocess_with_shared_lists(source, expressions, canvases, sketches, path)
@@ -475,6 +494,22 @@ def _preprocess_recursive(
         return m.group(0)  # couldn't preprocess, keep original path
 
     patched = _INCLUDE_RE.sub(_patch_include, pp)
+
+    # Also rewrite #import paths so Typst loads the preprocessed temp files
+    # (which have sketch/canvas placeholders instead of the raw calls).
+    def _patch_import(m: re.Match) -> str:
+        rel = m.group(1)
+        child_path = (path.parent / rel).resolve()
+        if child_path in included:
+            temp_path = child_path.parent / f"_typst_web_pp_{child_path.name}"
+            try:
+                new_rel = temp_path.relative_to(path.parent).as_posix()
+            except ValueError:
+                new_rel = str(temp_path)
+            return m.group(0).replace(f'"{rel}"', f'"{new_rel}"', 1)
+        return m.group(0)
+
+    patched = _IMPORT_RE.sub(_patch_import, patched)
     included[path] = patched
 
 
