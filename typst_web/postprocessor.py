@@ -792,6 +792,10 @@ figure img, #article img { display: block; max-width: 100%; height: auto; margin
 .typst-todo  .thm-head { color: #dc2626; }
 [data-theme="dark"] .typst-thm { background: rgba(255,255,255,.04); }
 
+/* ── Grid layout ─────────────────────────────────────────────────────── */
+.tw-grid { display: grid; gap: 1em; margin: 1rem 0; }
+.tw-grid-cell { min-width: 0; }
+
 /* ── SVG dark-mode ───────────────────────────────────────────────────── */
 /* Math SVGs use fill="currentColor" so they follow --text automatically.  */
 /* Canvas/figure SVGs are diagrams with a white background — invert them  */

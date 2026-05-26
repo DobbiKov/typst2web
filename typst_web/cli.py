@@ -78,6 +78,35 @@ def _detect_language(typ_path: Path) -> str:
         return "en"
 
 
+_GRID_OVERRIDE = (
+    '// typst-to-web: grid HTML override\n'
+    '#let grid(..args) = {\n'
+    '  let pos = args.pos()\n'
+    '  let named = args.named()\n'
+    '  let columns = named.at("columns", default: 1)\n'
+    '  let col-css = if type(columns) == int {\n'
+    '    "repeat(" + str(columns) + ", 1fr)"\n'
+    '  } else if type(columns) == array {\n'
+    '    columns.map(c => repr(c)).join(" ")\n'
+    '  } else {\n'
+    '    repr(columns)\n'
+    '  }\n'
+    '  let gap = named.at("gutter", default: none)\n'
+    '  let col-gap = named.at("column-gutter", default: none)\n'
+    '  let row-gap = named.at("row-gutter", default: none)\n'
+    '  let style = "display:grid;grid-template-columns:" + col-css + ";"\n'
+    '  if gap != none { style = style + "gap:" + repr(gap) + ";" }\n'
+    '  if col-gap != none { style = style + "column-gap:" + repr(col-gap) + ";" }\n'
+    '  if row-gap != none { style = style + "row-gap:" + repr(row-gap) + ";" }\n'
+    '  html.elem("div", attrs: ("class": "tw-grid", "style": style), {\n'
+    '    for cell in pos {\n'
+    '      html.elem("div", attrs: ("class": "tw-grid-cell"), cell)\n'
+    '    }\n'
+    '  })\n'
+    '}\n'
+)
+
+
 def _build_thm_overrides(lang: str) -> str:
     """
     Build Typst source that overrides all known theorem environments to emit
@@ -128,7 +157,7 @@ def _build_thm_overrides(lang: str) -> str:
         '    } else { it }\n'
         '  } else { it }\n'
         '}\n'
-    ) + env_overrides + "\n"
+    ) + env_overrides + "\n" + _GRID_OVERRIDE
 
 
 def _inject_thm_overrides(source: str, lang: str) -> str:
