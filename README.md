@@ -58,14 +58,14 @@ $ overline(X) approx cal(N)(mu, sigma^2 / n) . $
 
 ```typst
 #sketch[
-  ````js
+  \`\`\`\`js
   p.setup = function() { p.createCanvas(500, 300); };
   p.draw  = function() {
     p.background(15, 15, 30);
     p.fill(120, 200, 255);
     p.circle(p.mouseX, p.mouseY, 40);
   };
-  ````
+  \`\`\`\`
 ]
 ```
 
