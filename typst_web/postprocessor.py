@@ -11,6 +11,7 @@ import re
 from pathlib import Path
 
 _P5_JS_PATH = Path(__file__).parent / "static" / "p5.min.js"
+_MANIM_JS_PATH = Path(__file__).parent / "static" / "manim-web.browser.js"
 
 
 def _load_p5_js() -> str:
@@ -21,6 +22,45 @@ def _load_p5_js() -> str:
             f"p5.min.js not found at {_P5_JS_PATH}. "
             "Download it from https://p5js.org and place it there."
         ) from e
+
+
+def _load_manim_js() -> str:
+    try:
+        return _MANIM_JS_PATH.read_text(encoding="utf-8")
+    except OSError as e:
+        raise RuntimeError(
+            f"manim-web.browser.js not found at {_MANIM_JS_PATH}. "
+            "Download it from https://cdn.jsdelivr.net/npm/manim-web@latest/dist/manim-web.browser.js"
+        ) from e
+
+
+def _manim_bundle_as_global() -> str:
+    """Transform the ES-module bundle into a plain script that sets window._mw.
+
+    The bundle ends with `export { A as a, B as b, ... };`.  We strip that and
+    replace it with `window._mw={a:A,b:B,...};` so the file can be loaded as a
+    regular (non-module) <script> tag — avoiding blob-URL import() which fails
+    on file:// pages in most browsers.
+    """
+    raw = _load_manim_js()
+    m = re.search(r'export\s*\{([^}]+)\}\s*;?\s*$', raw, re.DOTALL)
+    if not m:
+        # Fallback: expose nothing — callers will see an empty _mw object.
+        return raw + '\nwindow._mw={};'
+    pairs = []
+    for item in m.group(1).split(','):
+        item = item.strip()
+        if not item:
+            continue
+        parts = re.split(r'\s+as\s+', item)
+        if len(parts) == 2:
+            internal, exported = parts[0].strip(), parts[1].strip()
+            pairs.append(f'{exported}:{internal}')
+        else:
+            name = parts[0].strip()
+            pairs.append(f'{name}:{name}')
+    assignment = 'window._mw={' + ','.join(pairs) + '};'
+    return raw[:m.start()] + assignment
 
 
 # ── Heading utilities ─────────────────────────────────────────────────────────
@@ -393,6 +433,54 @@ def _inject_sketches(html: str, sketches) -> str:
     return html
 
 
+# ── manim-web scene injection ────────────────────────────────────────────────
+
+def _inject_manims(html: str, manims) -> str:
+    """Replace <div data-manim="N"> placeholders with manim-web scene containers.
+
+    window._mw is set synchronously by the bundle <script> in <head> (injected
+    via {{MANIM_SCRIPT}}).  Each scene wrapper:
+      1. Reads window._mw synchronously (no await / no blob URL needed).
+      2. Creates a Scene sized to the container.
+      3. Builds an AsyncFunction with all module exports as named parameters so
+         user code can write `new Circle(...)`, `await scene.play(...)`, etc.
+    """
+    for mn in manims:
+        n = mn.index
+        cid = f"manim-{n}"
+        ccid = f"_mwc-{n}"
+        # Store user code in an inert <script> element to avoid escaping issues
+        # when constructing the AsyncFunction body from a string.
+        safe_js = mn.js_body.replace("</script>", r"<\/script>")
+        container = f'<div id="{cid}" class="manim-container"></div>'
+        code_el = f'<script id="{ccid}" type="text/x-manim-code">\n{safe_js}\n</script>'
+        script = (
+            f'<script>'
+            f'(function(){{'
+            f'var _m=window._mw||{{}};'
+            f'var _c=document.getElementById("{cid}");'
+            f'var _w=(_c&&_c.offsetWidth)||800;'
+            # AsyncFunction lets user write top-level `await` in their JS body.
+            f'var _AF=Object.getPrototypeOf(async function(){{}}).constructor;'
+            f'var _code=document.getElementById("{ccid}").textContent;'
+            f'(new _AF(...Object.keys(_m),"scene",_code))'
+            f'(...Object.values(_m),'
+            f'new _m.Scene(_c,{{width:_w,height:Math.round(_w*9/16)}})'
+            f').catch(function(e){{console.error("[manim-{n}]",e);}});'
+            f'}})();'
+            f'</script>'
+        )
+        replacement = f'{container}\n{code_el}\n{script}'
+        html = re.sub(
+            rf'<div[^>]*\bdata-manim="{n}"[^>]*>.*?</div>',
+            lambda _m, r=replacement: r,
+            html,
+            count=1,
+            flags=re.DOTALL,
+        )
+    return html
+
+
 # ── TOC ───────────────────────────────────────────────────────────────────────
 
 def _build_toc_html(headings: list[dict]) -> str:
@@ -419,6 +507,7 @@ def build_web_page(
     *,
     canvas_svgs: list[str] | None = None,
     sketches=None,          # list[SketchExpr] | None
+    manims=None,            # list[ManimExpr] | None
     title: str = "",
     subtitle: str = "",
     authors=None,  # list[Author] | None
@@ -456,6 +545,9 @@ def build_web_page(
     sketches = sketches or []
     if sketches:
         content = _inject_sketches(content, sketches)
+    manims = manims or []
+    if manims:
+        content = _inject_manims(content, manims)
     content = _inject_thm_anchors(content)
 
     headings = _extract_headings(content)
@@ -469,6 +561,11 @@ def build_web_page(
 
     p5_script = f'<script>\n{_load_p5_js()}\n</script>' if sketches else ""
 
+    if manims:
+        manim_script = f'<script>\n{_manim_bundle_as_global()}\n</script>'
+    else:
+        manim_script = ""
+
     return (
         _TEMPLATE
         .replace("{{TITLE}}",                doc_title)
@@ -481,6 +578,7 @@ def build_web_page(
         .replace('"{{AUTHORS_STR}}"',         f'"{authors_str}"')
         .replace('"{{DATE_STR}}"',            f'"{date}"')
         .replace("{{P5_SCRIPT}}",             p5_script)
+        .replace("{{MANIM_SCRIPT}}",          manim_script)
     )
 
 
@@ -495,6 +593,7 @@ _TEMPLATE = """\
 <title>{{TITLE}}</title>
 <meta name="generator" content="typst-to-web">
 {{P5_SCRIPT}}
+{{MANIM_SCRIPT}}
 <style>
 /* ── Design tokens ─────────────────────────────────────────────────────── */
 :root {
@@ -753,6 +852,19 @@ figure img, #article img { display: block; max-width: 100%; height: auto; margin
 .p5-sketch-btn-restart { top: 40px; font-size: 14px; }
 .p5-sketch-container:hover .p5-sketch-btn { opacity: 1; }
 [data-theme="dark"] .p5-sketch-btn { background: rgba(255,255,255,.2); }
+
+/* ── manim-web scene containers ──────────────────────────────────────── */
+.manim-container {
+  display: block;
+  position: relative;
+  margin: 1.5rem auto;
+  text-align: center;
+  line-height: 0;
+}
+.manim-container canvas {
+  display: inline-block;
+  max-width: 100%;
+}
 
 /* ── Theorem environments ─────────────────────────────────────────────── */
 .typst-thm {

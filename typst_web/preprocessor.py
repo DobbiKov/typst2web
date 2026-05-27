@@ -40,11 +40,19 @@ class SketchExpr:
 
 
 @dataclass
+class ManimExpr:
+    index: int
+    js_body: str           # raw JavaScript extracted from the fenced code block
+    source_path: Path = field(default_factory=Path)
+
+
+@dataclass
 class PreprocessResult:
     source: str                      # modified Typst source with placeholders
     expressions: list[MathExpr] = field(default_factory=list)
     canvases: list[CanvasExpr] = field(default_factory=list)
     sketches: list[SketchExpr] = field(default_factory=list)
+    manims: list[ManimExpr] = field(default_factory=list)
     # Included files that were preprocessed: original_path → modified_source
     included: dict[Path, str] = field(default_factory=dict)
 
@@ -65,11 +73,20 @@ def _sketch_placeholder(n: int) -> str:
     return f'#html.elem("div", attrs: ("data-sketch": "{n}"), [])'
 
 
+def _manim_placeholder(n: int) -> str:
+    return f'#html.elem("div", attrs: ("data-manim": "{n}"), [])'
+
+
 # Matches: #sketch[ ```js\n...\n``` ]  or  sketch[ ```js\n...\n``` ]
 # (the # is optional so code-mode calls like `#let fig = sketch[...]` are caught)
 # Language tag optional: js or javascript
 _SKETCH_RE = re.compile(
     r'(#?)sketch\s*\[\s*```(?:js|javascript)?\s*\n([\s\S]*?)```\s*\]',
+)
+
+# Matches: #manim[ ```js\n...\n``` ]  or  manim[ ```js\n...\n``` ]
+_MANIM_RE = re.compile(
+    r'(#?)manim\s*\[\s*```(?:js|javascript)?\s*\n([\s\S]*?)```\s*\]',
 )
 
 
@@ -98,6 +115,19 @@ def preprocess(source: str) -> PreprocessResult:
             return f'html.elem("div", attrs: ("data-sketch": "{idx}"), [])'
 
     source = _SKETCH_RE.sub(_replace_sketch, source)
+
+    # Pre-pass: extract #manim[```js...```] blocks (same reason as sketch).
+    manims: list[ManimExpr] = []
+
+    def _replace_manim(m: re.Match) -> str:
+        idx = len(manims)
+        manims.append(ManimExpr(idx, m.group(2)))
+        if m.group(1) == "#":
+            return _manim_placeholder(idx)
+        else:
+            return f'html.elem("div", attrs: ("data-manim": "{idx}"), [])'
+
+    source = _MANIM_RE.sub(_replace_manim, source)
 
     out: list[str] = []
     expressions: list[MathExpr] = []
@@ -394,7 +424,7 @@ def preprocess(source: str) -> PreprocessResult:
             result_src,
         )
 
-    return PreprocessResult(source=result_src, expressions=expressions, canvases=canvases, sketches=sketches)
+    return PreprocessResult(source=result_src, expressions=expressions, canvases=canvases, sketches=sketches, manims=manims)
 
 
 # ── Recursive entry point ─────────────────────────────────────────────────────
@@ -425,16 +455,17 @@ def preprocess_file(
     expressions: list[MathExpr] = []
     canvases: list[CanvasExpr] = []
     sketches: list[SketchExpr] = []
+    manims: list[ManimExpr] = []
     included: dict[Path, str] = {}
     _preprocess_recursive(
-        typ_path.resolve(), expressions, canvases, sketches, included, set(),
+        typ_path.resolve(), expressions, canvases, sketches, manims, included, set(),
         source_transform=source_transform,
     )
     # The main file's preprocessed source is stored in included[typ_path]
     main_source = included.pop(typ_path.resolve())
     return PreprocessResult(
         source=main_source, expressions=expressions, canvases=canvases,
-        sketches=sketches, included=included,
+        sketches=sketches, manims=manims, included=included,
     )
 
 
@@ -443,6 +474,7 @@ def _preprocess_recursive(
     expressions: list[MathExpr],
     canvases: list[CanvasExpr],
     sketches: list[SketchExpr],
+    manims: list[ManimExpr],
     included: dict[Path, str],
     seen: set[Path],
     *,
@@ -468,12 +500,12 @@ def _preprocess_recursive(
     for im in _IMPORT_RE.finditer(source):
         child_path = (path.parent / im.group(1)).resolve()
         _preprocess_recursive(
-            child_path, expressions, canvases, sketches, included, seen,
+            child_path, expressions, canvases, sketches, manims, included, seen,
             source_transform=source_transform,
         )
 
-    # Preprocess this file's math + canvases + sketches, sharing the global lists
-    pp = _preprocess_with_shared_lists(source, expressions, canvases, sketches, path)
+    # Preprocess this file's math + canvases + sketches + manims, sharing global lists
+    pp = _preprocess_with_shared_lists(source, expressions, canvases, sketches, manims, path)
 
     # Now recurse into #include'd files found in the original source
     # and rewrite include paths to point at the temp preprocessed versions
@@ -482,7 +514,7 @@ def _preprocess_recursive(
         rel = m.group(2)
         child_path = (path.parent / rel).resolve()
         _preprocess_recursive(
-            child_path, expressions, canvases, sketches, included, seen,
+            child_path, expressions, canvases, sketches, manims, included, seen,
             source_transform=source_transform,
         )
         if child_path in included:
@@ -518,11 +550,12 @@ def _preprocess_with_shared_lists(
     expressions: list[MathExpr],
     canvases: list[CanvasExpr],
     sketches: list[SketchExpr],
+    manims: list[ManimExpr],
     source_path: Path | None = None,
 ) -> str:
     """
-    Like preprocess() but appends to existing shared expression, canvas, and
-    sketch lists so indices are globally unique across all files.
+    Like preprocess() but appends to existing shared expression, canvas,
+    sketch, and manim lists so indices are globally unique across all files.
     """
     pp = preprocess(source)
 
@@ -565,6 +598,19 @@ def _preprocess_with_shared_lists(
         if source_path is not None:
             sk.source_path = source_path
     sketches.extend(pp.sketches)
+
+    # ── Re-index manim expressions ────────────────────────────────────────
+    manim_offset = len(manims)
+    for mn in reversed(pp.manims):
+        old_idx = mn.index
+        new_idx = old_idx + manim_offset
+        old = f'#html.elem("div", attrs: ("data-manim": "{old_idx}"), [])'
+        new = f'#html.elem("div", attrs: ("data-manim": "{new_idx}"), [])'
+        adjusted_source = adjusted_source.replace(old, new, 1)
+        mn.index = new_idx
+        if source_path is not None:
+            mn.source_path = source_path
+    manims.extend(pp.manims)
 
     return adjusted_source
 
