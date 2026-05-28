@@ -53,8 +53,12 @@ class PreprocessResult:
     canvases: list[CanvasExpr] = field(default_factory=list)
     sketches: list[SketchExpr] = field(default_factory=list)
     manims: list[ManimExpr] = field(default_factory=list)
-    # Included files that were preprocessed: original_path → modified_source
+    # All preprocessed files: original_path → modified_source (imports + includes)
     included: dict[Path, str] = field(default_factory=dict)
+    # Subset of included that came via #include (content files).
+    # Files reached only via #import are module files and should NOT receive
+    # content-level injections like theorem overrides or heading show rules.
+    content_files: set[Path] = field(default_factory=set)
 
 
 # Typst HTML-encodes raw <!-- --> comments, so we use html.elem with a data attribute.
@@ -80,13 +84,15 @@ def _manim_placeholder(n: int) -> str:
 # Matches: #sketch[ ```js\n...\n``` ]  or  sketch[ ```js\n...\n``` ]
 # (the # is optional so code-mode calls like `#let fig = sketch[...]` are caught)
 # Language tag optional: js or javascript
+# (?![-\w]) prevents matching identifiers like sketch-something or sketchpad.
 _SKETCH_RE = re.compile(
-    r'(#?)sketch\s*\[\s*```(?:js|javascript)?\s*\n([\s\S]*?)```\s*\]',
+    r'(#?)sketch(?![-\w])\s*\[\s*```(?:js|javascript)?\s*\n([\s\S]*?)```\s*\]',
 )
 
 # Matches: #manim[ ```js\n...\n``` ]  or  manim[ ```js\n...\n``` ]
+# (?![-\w]) prevents matching identifiers like manim-normal, manim-web, etc.
 _MANIM_RE = re.compile(
-    r'(#?)manim\s*\[\s*```(?:js|javascript)?\s*\n([\s\S]*?)```\s*\]',
+    r'(#?)manim(?![-\w])\s*\[\s*```(?:js|javascript)?\s*\n([\s\S]*?)```\s*\]',
 )
 
 
@@ -100,6 +106,50 @@ def preprocess(source: str) -> PreprocessResult:
 
     Math is replaced when: brace_depth == 0  or  bracket_depth > 0
     """
+    # Pre-pass: extract `#let NAME = canvas({...})` let-bindings at the top
+    # level of module files.  The state machine skips canvas() calls when
+    # brace_depth > 0 (code context), so canvas bodies stored in #let bindings
+    # are never replaced.  When those variables are later called inside a grid
+    # cell, Typst's HTML exporter hoists the resulting figure out of the cell.
+    # Replacing them here keeps the placeholder inline and avoids hoisting.
+    #
+    # We use _extract_balanced on the raw source (before the state machine) so
+    # arbitrary nested braces inside the canvas body are handled correctly.
+    # Only top-level `#let NAME = canvas(` or `#let NAME = IMPORT.canvas(`
+    # patterns are matched — we do not touch canvas() calls deeper in code.
+    _LET_CANVAS_RE = re.compile(
+        r'(?m)^(#let\s+[\w-]+\s*=\s*(?:[\w.]+\.)?canvas)\s*(\()',
+    )
+    canvases: list[CanvasExpr] = []
+
+    def _replace_let_canvas(src: str) -> str:
+        """Replace canvas({...}) in top-level #let bindings with placeholders."""
+        parts: list[str] = []
+        pos = 0
+        for m in _LET_CANVAS_RE.finditer(src):
+            # group(1) = "#let NAME = canvas" (up to but not including the `(`)
+            # group(2) = "(" (the opening paren)
+            # We want to keep everything up to and including "= " and replace
+            # "canvas(...)" with the placeholder.
+            # canvas_call_start = start of "canvas" within group(1)
+            canvas_keyword_start = m.start(1) + m.group(1).index("canvas")
+            paren_start = m.start(2)
+            body, end = _extract_balanced(src, paren_start, "(", ")")
+            if body is None:
+                continue
+            # Reconstruct the full call with leading # for figure_renderer
+            full_call = "#canvas" + body
+            idx = len(canvases)
+            canvases.append(CanvasExpr(idx, full_call))
+            # Emit source up to start of "canvas", then the placeholder (no #)
+            parts.append(src[pos:canvas_keyword_start])
+            parts.append(_canvas_placeholder(idx).lstrip("#"))  # code context: no #
+            pos = end
+        parts.append(src[pos:])
+        return "".join(parts)
+
+    source = _replace_let_canvas(source)
+
     # Pre-pass: extract #sketch[```js...```] blocks before the state machine so
     # that raw-block content (triple backticks) is never seen by the scanner.
     sketches: list[SketchExpr] = []
@@ -131,7 +181,7 @@ def preprocess(source: str) -> PreprocessResult:
 
     out: list[str] = []
     expressions: list[MathExpr] = []
-    canvases: list[CanvasExpr] = []
+    # canvases already initialized above (pre-pass may have added entries)
     i = 0
     n = len(source)
     brace_depth = 0      # depth inside {} code blocks
@@ -457,8 +507,10 @@ def preprocess_file(
     sketches: list[SketchExpr] = []
     manims: list[ManimExpr] = []
     included: dict[Path, str] = {}
+    content_files: set[Path] = set()
     _preprocess_recursive(
-        typ_path.resolve(), expressions, canvases, sketches, manims, included, set(),
+        typ_path.resolve(), expressions, canvases, sketches, manims,
+        included, content_files, set(),
         source_transform=source_transform,
     )
     # The main file's preprocessed source is stored in included[typ_path]
@@ -466,6 +518,7 @@ def preprocess_file(
     return PreprocessResult(
         source=main_source, expressions=expressions, canvases=canvases,
         sketches=sketches, manims=manims, included=included,
+        content_files=content_files,
     )
 
 
@@ -476,6 +529,7 @@ def _preprocess_recursive(
     sketches: list[SketchExpr],
     manims: list[ManimExpr],
     included: dict[Path, str],
+    content_files: set[Path],
     seen: set[Path],
     *,
     source_transform=None,
@@ -500,7 +554,8 @@ def _preprocess_recursive(
     for im in _IMPORT_RE.finditer(source):
         child_path = (path.parent / im.group(1)).resolve()
         _preprocess_recursive(
-            child_path, expressions, canvases, sketches, manims, included, seen,
+            child_path, expressions, canvases, sketches, manims,
+            included, content_files, seen,
             source_transform=source_transform,
         )
 
@@ -514,10 +569,14 @@ def _preprocess_recursive(
         rel = m.group(2)
         child_path = (path.parent / rel).resolve()
         _preprocess_recursive(
-            child_path, expressions, canvases, sketches, manims, included, seen,
+            child_path, expressions, canvases, sketches, manims,
+            included, content_files, seen,
             source_transform=source_transform,
         )
         if child_path in included:
+            # Mark as content file: #include merges document content, so theorem
+            # overrides, heading rules, etc. should be injected into this file.
+            content_files.add(child_path)
             # The temp file sits next to the original child file.
             # Rebuild a relative path from the *current* file's dir to the temp file.
             temp_path = child_path.parent / f"_typst_web_pp_{child_path.name}"

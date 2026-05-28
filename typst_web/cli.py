@@ -401,7 +401,13 @@ def main(argv: list[str] | None = None) -> int:
 
         for orig_path, src in pp.included.items():
             tp = orig_path.parent / f"_typst_web_pp_{orig_path.name}"
-            tp.write_text(_prepare_source(src), encoding="utf-8")
+            # Only inject theorem overrides / heading rules into content files
+            # (#include'd).  Module files (#import-only) must be written as-is
+            # so their exported symbols remain intact.
+            if orig_path in pp.content_files:
+                tp.write_text(_prepare_source(src), encoding="utf-8")
+            else:
+                tp.write_text(src, encoding="utf-8")
             temp_files.append(tp)
 
         # ── 2. Compile HTML ───────────────────────────────────────────────────
