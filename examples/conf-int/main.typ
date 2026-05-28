@@ -456,3 +456,117 @@ the top tracks the running coverage rate.
   };
   ```
 ]
+
+= Animated Derivation
+
+The animation below walks through the geometric construction of the confidence
+interval step by step, using *manim-web*. It shows the standard normal, marks
+the critical values $plus.minus z_(alpha\/2)$ for $alpha = 0.05$, shades the
+acceptance region, and annotates the resulting interval — matching the algebra
+in @eq-ci exactly.
+
+#manim[
+  ```js
+  // Standard normal PDF
+  function phi(x) { return Math.exp(-0.5 * x * x) / Math.sqrt(2 * Math.PI); }
+
+  const Z = 1.96; // z_{0.025}  for α = 0.05
+
+  // ── axes ──────────────────────────────────────────────────────────────────
+  const axes = new Axes({
+    xRange: [-4.5, 4.5, 1],
+    yRange: [0, 0.45, 0.1],
+    xLength: 9,
+    yLength: 5,
+    color: WHITE,
+  });
+  await scene.play(new Create(axes, { duration: 0.8 }));
+
+  // ── bell curve ───────────────────────────────────────────────────────────
+  const curve = new FunctionGraph({
+    func: phi,
+    xRange: [-4, 4],
+    color: BLUE_C,
+    strokeWidth: 3,
+    axes: axes,
+  });
+  await scene.play(new Create(curve, { duration: 1.4 }));
+
+  // ── acceptance region — filled area under the curve ──────────────────────
+  // Parametric path: bell curve from -Z to Z, then baseline back from Z to -Z.
+  // This closes the region so the fill renders correctly.
+  const region = new ParametricFunction({
+    func: (t) => {
+      if (t <= 1) {
+        const x = -Z + t * 2 * Z;
+        return [x, phi(x)];
+      } else {
+        const x = Z - (t - 1) * 2 * Z;
+        return [x, 0];
+      }
+    },
+    tRange: [0, 2],
+    numSamples: 120,
+    axes: axes,
+    color: BLUE_C,
+    strokeWidth: 0,
+  });
+  region.fillOpacity = 0.25;
+  await scene.play(new FadeIn(region, { duration: 0.6 }));
+
+  // ── critical-value dashed lines ───────────────────────────────────────────
+  const leftLine = new DashedLine({
+    start: axes.coordsToPoint(-Z, 0),
+    end:   axes.coordsToPoint(-Z, phi(-Z)),
+    color: RED_C,
+    strokeWidth: 2,
+  });
+  const rightLine = new DashedLine({
+    start: axes.coordsToPoint( Z, 0),
+    end:   axes.coordsToPoint( Z, phi( Z)),
+    color: RED_C,
+    strokeWidth: 2,
+  });
+  await scene.play(
+    new Create(leftLine,  { duration: 0.7 }),
+    new Create(rightLine, { duration: 0.7 }),
+  );
+
+  // ── text labels ───────────────────────────────────────────────────────────
+  const lblLeft = new Text({ text: "-1.96", fontSize: 28, color: RED_C });
+  lblLeft.moveTo(axes.coordsToPoint(-Z, -0.05));
+
+  const lblRight = new Text({ text: "+1.96", fontSize: 28, color: RED_C });
+  lblRight.moveTo(axes.coordsToPoint( Z, -0.05));
+
+  const lbl95 = new Text({ text: "95 %", fontSize: 36, color: BLUE_C });
+  lbl95.moveTo(axes.coordsToPoint(0, 0.20));
+
+  await scene.play(
+    new Write(lblLeft,  { duration: 0.7 }),
+    new Write(lblRight, { duration: 0.7 }),
+  );
+  await scene.play(new Write(lbl95, { duration: 0.7 }));
+
+  // ── brace + margin-of-error label ────────────────────────────────────────
+  // Span a Line at y=0 from -Z to Z as the brace anchor (flat bottom edge).
+  const spanLine = new Line({
+    start: axes.coordsToPoint(-Z, 0),
+    end:   axes.coordsToPoint( Z, 0),
+    strokeWidth: 0,
+  });
+  const brace = new Brace(spanLine, { direction: DOWN });
+  await scene.play(new GrowFromCenter(brace, { duration: 0.7 }));
+
+  const lblMoE = new Text({
+    text: "2 \u00B7 z\u03B1/2 \u00B7 \u03C3/\u221An",
+    fontSize: 26,
+    color: WHITE,
+  });
+  const braceBot = axes.coordsToPoint(0, -0.06);
+  lblMoE.moveTo([braceBot[0], braceBot[1] - 0.55, 0]);
+  await scene.play(new FadeIn(lblMoE, { duration: 0.6 }));
+
+  await scene.wait(2);
+  ```
+]
