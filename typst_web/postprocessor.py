@@ -444,6 +444,8 @@ def _inject_manims(html: str, manims) -> str:
       2. Creates a Scene sized to the container.
       3. Builds an AsyncFunction with all module exports as named parameters so
          user code can write `new Circle(...)`, `await scene.play(...)`, etc.
+      4. Pause/play and restart buttons are overlaid (same style as p5 sketches).
+      5. IntersectionObserver auto-pauses when scrolled out of view.
     """
     for mn in manims:
         n = mn.index
@@ -455,20 +457,70 @@ def _inject_manims(html: str, manims) -> str:
         container = f'<div id="{cid}" class="manim-container"></div>'
         code_el = f'<script id="{ccid}" type="text/x-manim-code">\n{safe_js}\n</script>'
         script = (
-            f'<script>'
-            f'(function(){{'
+            f'<script>(function(){{'
             f'var _m=window._mw||{{}};'
             f'var _c=document.getElementById("{cid}");'
             f'var _w=(_c&&_c.offsetWidth)||800;'
-            # AsyncFunction lets user write top-level `await` in their JS body.
             f'var _AF=Object.getPrototypeOf(async function(){{}}).constructor;'
             f'var _code=document.getElementById("{ccid}").textContent;'
+            f'var _scene=null;'
+            f'var _userPaused=false;'
+            f'var _finished=false;'
+            # Create buttons first so _make() can reference them.
+            # Pause/play button
+            f'var _btn=document.createElement("button");'
+            f'_btn.className="manim-btn";'
+            f'_btn.title="Pause animation";'
+            f'_btn.textContent="\u23f8";'
+            f'_btn.addEventListener("click",function(){{'
+            f'if(_finished)return;'
+            f'_userPaused=!_userPaused;'
+            f'if(_userPaused){{_scene.pause();_btn.textContent="\u25b6";_btn.title="Resume animation";}}'
+            f'else{{_scene.resume();_btn.textContent="\u23f8";_btn.title="Pause animation";}}'
+            f'}});'
+            # Restart button: dispose scene and re-run from scratch.
+            f'var _rbtn=document.createElement("button");'
+            f'_rbtn.className="manim-btn manim-btn-restart";'
+            f'_rbtn.title="Restart animation";'
+            f'_rbtn.textContent="\u21ba";'
+            f'_rbtn.addEventListener("click",function(){{'
+            f'_make();'
+            f'}});'
+            # _make(): dispose old scene, clear container children (keep buttons),
+            # create a fresh scene and run the user's async code.
+            f'function _make(){{'
+            f'_finished=false;_userPaused=false;'
+            f'if(_scene){{try{{_scene.dispose();}}catch(e){{}}}}_scene=null;'
+            # Remove old canvases but keep the overlay buttons.
+            f'Array.from(_c.children).forEach(function(k){{'
+            f'if(k!==_btn&&k!==_rbtn)_c.removeChild(k);'
+            f'}});'
+            f'_btn.textContent="\u23f8";_btn.title="Pause animation";'
+            f'_scene=new _m.Scene(_c,{{width:_w,height:Math.round(_w*9/16)}});'
             f'(new _AF(...Object.keys(_m),"scene",_code))'
-            f'(...Object.values(_m),'
-            f'new _m.Scene(_c,{{width:_w,height:Math.round(_w*9/16)}})'
-            f').catch(function(e){{console.error("[manim-{n}]",e);}});'
-            f'}})();'
-            f'</script>'
+            f'(...Object.values(_m),_scene)'
+            f'.then(function(){{'
+            # Animation finished — switch button to indicate done state.
+            f'_finished=true;'
+            f'_btn.textContent="\u23f5";_btn.title="Animation finished";'
+            f'}})'
+            f'.catch(function(e){{console.error("[manim-{n}]",e);}});'
+            # Ensure buttons stay on top after the scene appends its canvas.
+            f'_c.appendChild(_btn);_c.appendChild(_rbtn);'
+            f'}}'
+            # Initial run
+            f'_make();'
+            # IntersectionObserver: pause when scrolled out of view.
+            f'if(window.IntersectionObserver){{'
+            f'var _io=new IntersectionObserver(function(entries){{'
+            f'entries.forEach(function(e){{'
+            f'if(_userPaused||_finished)return;'
+            f'if(_scene){{if(e.isIntersecting)_scene.resume();else _scene.pause();}}'
+            f'}});'
+            f'}},{{threshold:0.1}});'
+            f'_io.observe(_c);'
+            f'}}'
+            f'}})();</script>'
         )
         replacement = f'{container}\n{code_el}\n{script}'
         html = re.sub(
@@ -865,6 +917,27 @@ figure img, #article img { display: block; max-width: 100%; height: auto; margin
   display: inline-block;
   max-width: 100%;
 }
+.manim-btn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 10;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: rgba(0,0,0,.35);
+  color: #fff;
+  font-size: 11px;
+  line-height: 28px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity .15s;
+}
+.manim-btn-restart { top: 40px; font-size: 14px; }
+.manim-container:hover .manim-btn { opacity: 1; }
+[data-theme="dark"] .manim-btn { background: rgba(255,255,255,.2); }
 
 /* ── Theorem environments ─────────────────────────────────────────────── */
 .typst-thm {
