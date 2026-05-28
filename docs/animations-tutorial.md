@@ -1,5 +1,19 @@
 # Interactive Animations in typst-to-web
 
+typst-to-web supports two animation systems:
+
+| Block | Library | Best for |
+|---|---|---|
+| `#sketch[```js ... ```]` | [p5.js](https://p5js.org) | Interactive animations with sliders, mouse input, draw loops |
+| `#manim[```js ... ```]` | [manim-web](https://github.com/maloyan/manim-web) | Scripted, step-by-step mathematical animations (Manim-style) |
+
+This page covers `#sketch` (p5.js). For manim-web see
+[`docs/manim-tutorial.md`](manim-tutorial.md).
+
+---
+
+## p5.js sketches (`#sketch`)
+
 typst-to-web supports embedding live, interactive p5.js sketches directly in
 your Typst documents using the `#sketch` block. Sketches run in the reader's
 browser — no server, no compilation step.

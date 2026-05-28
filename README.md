@@ -10,6 +10,7 @@ dependencies, no JavaScript math rendering.
 - **Cetz figures** — `#canvas({...})` blocks are compiled to SVG separately and embedded
 - **Theorem environments** — `#thm`, `#defn`, `#lem`, and 17 others, with auto-counters and `@label` cross-references
 - **Interactive sketches** — embed live p5.js animations with `#sketch[```js ... ```]`
+- **Manim animations** — embed step-by-step mathematical animations with `#manim[```js ... ```]` (manim-web)
 - **Settings** — title/subtitle/authors via CLI flags, `typst-web.toml`, or parsed from the `.typ` source
 - **Self-contained output** — one `.html` file, no external assets
 
@@ -54,7 +55,7 @@ The sample mean $overline(X)$ satisfies
 $ overline(X) approx cal(N)(mu, sigma^2 / n) . $
 ```
 
-### Interactive animation
+### Interactive animation (p5.js)
 
 ```typst
 #sketch[
@@ -72,6 +73,25 @@ $ overline(X) approx cal(N)(mu, sigma^2 / n) . $
 All p5.js calls use the `p.` prefix (instance mode). Sliders and buttons
 created with `p.createSlider()` / `p.createButton()` are automatically placed
 inside the sketch container. See [`docs/animations-tutorial.md`](docs/animations-tutorial.md) for full docs.
+
+### Scripted mathematical animation (manim-web)
+
+```typst
+#manim[
+  \`\`\`\`js
+  const circle = new Circle({ radius: 1.5, color: BLUE });
+  await scene.play(new Create(circle, { duration: 1 }));
+  const lbl = new Text({ text: "Hello!", fontSize: 40 });
+  await scene.play(new Write(lbl, { duration: 0.8 }));
+  await scene.wait(1);
+  \`\`\`\`
+]
+```
+
+All 587 manim-web exports (`Circle`, `Axes`, `FunctionGraph`, `Create`, `FadeIn`,
+color constants, etc.) are available as bare names. `scene` is pre-created and
+sized to the container. See [`docs/manim-tutorial.md`](docs/manim-tutorial.md) for
+the full guide including differences from the library docs.
 
 Create animations interactively with Claude using [the artifact](https://claude.ai/public/artifacts/4b8710d1-22d3-44ca-848d-d0340d170825)
 
@@ -98,10 +118,12 @@ typst_web/
   postprocessor.py  inject SVGs, bundle p5.js, assemble final HTML
   static/
     p5.min.js       vendored p5.js v1.11.3
+    manim-web.browser.js  vendored manim-web v0.3.22
 examples/
   conf-int/         confidence interval demo with two interactive sketches
 docs/
-  animations-tutorial.md
+  animations-tutorial.md   p5.js sketch guide
+  manim-tutorial.md         manim-web scene guide
 ```
 
 ## Development
