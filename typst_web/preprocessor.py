@@ -636,9 +636,14 @@ def _preprocess_with_shared_lists(
     for cv in reversed(pp.canvases):
         old_idx = cv.index
         new_idx = old_idx + canvas_offset
-        old = f'#html.elem("div", attrs: ("data-canvas": "{old_idx}"), [])'
-        new = f'#html.elem("div", attrs: ("data-canvas": "{new_idx}"), [])'
-        adjusted_source = adjusted_source.replace(old, new, 1)
+        # Try both markup (#html.elem) and code-context (html.elem) forms.
+        for prefix in ("#", ""):
+            old = f'{prefix}html.elem("div", attrs: ("data-canvas": "{old_idx}"), [])'
+            new = f'{prefix}html.elem("div", attrs: ("data-canvas": "{new_idx}"), [])'
+            replaced = adjusted_source.replace(old, new, 1)
+            if replaced is not adjusted_source:
+                adjusted_source = replaced
+                break
         cv.index = new_idx
         # Annotate with the source file path so the renderer can find preamble
         if source_path is not None:
@@ -650,9 +655,13 @@ def _preprocess_with_shared_lists(
     for sk in reversed(pp.sketches):
         old_idx = sk.index
         new_idx = old_idx + sketch_offset
-        old = f'#html.elem("div", attrs: ("data-sketch": "{old_idx}"), [])'
-        new = f'#html.elem("div", attrs: ("data-sketch": "{new_idx}"), [])'
-        adjusted_source = adjusted_source.replace(old, new, 1)
+        for prefix in ("#", ""):
+            old = f'{prefix}html.elem("div", attrs: ("data-sketch": "{old_idx}"), [])'
+            new = f'{prefix}html.elem("div", attrs: ("data-sketch": "{new_idx}"), [])'
+            replaced = adjusted_source.replace(old, new, 1)
+            if replaced is not adjusted_source:
+                adjusted_source = replaced
+                break
         sk.index = new_idx
         if source_path is not None:
             sk.source_path = source_path
@@ -663,9 +672,13 @@ def _preprocess_with_shared_lists(
     for mn in reversed(pp.manims):
         old_idx = mn.index
         new_idx = old_idx + manim_offset
-        old = f'#html.elem("div", attrs: ("data-manim": "{old_idx}"), [])'
-        new = f'#html.elem("div", attrs: ("data-manim": "{new_idx}"), [])'
-        adjusted_source = adjusted_source.replace(old, new, 1)
+        for prefix in ("#", ""):
+            old = f'{prefix}html.elem("div", attrs: ("data-manim": "{old_idx}"), [])'
+            new = f'{prefix}html.elem("div", attrs: ("data-manim": "{new_idx}"), [])'
+            replaced = adjusted_source.replace(old, new, 1)
+            if replaced is not adjusted_source:
+                adjusted_source = replaced
+                break
         mn.index = new_idx
         if source_path is not None:
             mn.source_path = source_path
